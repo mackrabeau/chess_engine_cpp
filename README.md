@@ -43,16 +43,17 @@
 
 Compile the main engine:
 ```bash
-g++ -std=c++11 game.cpp board.cpp movegenerator.cpp movetables.cpp search.cpp evaluation.cpp engine.cpp -o engine
+g++ -O3 -march=native -DNDEBUG -flto -std=c++17 game.cpp board.cpp movetables.cpp search.cpp evaluation.cpp move.cpp transposition.cpp engine.cpp -o engine 
 ```
 
 Compile the performance tester (optional):
 ```bash
-g++ -std=c++11 game.cpp board.cpp movegenerator.cpp movetables.cpp search.cpp evaluation.cpp perft.cpp -o perft
+g++ -O3 -march=native -DNDEBUG -flto -std=c++17 game.cpp board.cpp movetables.cpp search.cpp move.cpp pert.cpp -o perft
 ```
 
 Example:
 ```bash
+g++ -O3 -march=native -DNDEBUG -flto -std=c++17 game.cpp board.cpp movetables.cpp search.cpp evaluation.cpp move.cpp transposition.cpp engine.cpp -o engine 
 ./engine
 engine reset
 engine move e2e4
@@ -109,7 +110,6 @@ Moves are encoded as 16-bit integers:
 
 First, compile and start the engine:
 ```bash
-cd chess/board
 g++ -std=c++11 -o engine [source files]
 ./engine
 ```
