@@ -112,9 +112,6 @@ void test_king_cannot_move_into_check() {
 }
 
 
-
-
-
 int main() {
     test_checkmate();
     test_stalemate();
