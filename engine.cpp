@@ -5,235 +5,392 @@
 #include "transposition.h"
 #include "search.h"
 
-#include <iostream>
-#include <sstream>
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
 
 using namespace std;
 
-std::chrono::steady_clock::time_point g_searchStartTime;
-long g_timeLimit = 20000;  // ms
+namespace {
 
+const std::string STARTPOS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-std::string getBestMove(Game& game, int maxTimeMs = 2000) {
+struct GoSettings {
+    long wtime = -1;
+    long btime = -1;
+    long winc = 0;
+    long binc = 0;
+    long movetime = -1;
+    long nodes = -1;
+    int movestogo = 0;
+    int depth = 0;
+    bool infinite = false;
+    bool ponder = false;
+    std::vector<std::string> searchMoveStrings;
+};
 
-    game.enableFastMode();
-    g_searchStartTime = std::chrono::steady_clock::now();
-    g_timeLimit = maxTimeMs;
-    resetSearchStats();
-
+struct SearchResult {
     Move bestMove;
+    int depthReached = 0;
+};
 
-    for (int depth = 1; depth <= MAX_SEARCH_DEPTH; ++depth) {
-        
-        string depthStr = "DEPTH:" + std::to_string(depth);
-        std::cerr << depthStr << std::endl;
+std::thread g_searchThread;
+std::atomic<bool> g_searchRunning(false);
 
-        Move depthBestMove = searchAtDepth(game, depth);
-
-        if (isTimeUp()) break;
-
-        if (depthBestMove.getMove()) {
-            bestMove = depthBestMove;
-        }
+long toLong(const std::string& value, long fallback = -1) {
+    try {
+        return std::stol(value);
+    } catch (...) {
+        return fallback;
     }
-
-    game.disableFastMode();
-    printSearchStats();
-
-    // no move found
-    if (!(bestMove.getMove())) {
-        GameState state = game.calculateGameState();
-        std::string gameStateStr;
-        switch (state) {
-            case ONGOING: gameStateStr = "ongoing"; break;
-            case CHECKMATE: gameStateStr = "checkmate"; break;
-            case STALEMATE: gameStateStr = "stalemate"; break;
-            case DRAW_REPETITION: gameStateStr = "draw_repetition"; break;
-            case DRAW_50_MOVE: gameStateStr = "draw_50_move"; break;
-            case DRAW_INSUFFICIENT_MATERIAL: gameStateStr = "draw_insufficient_material"; break;
-            default: gameStateStr = "unknown"; break;
-        }
-
-        return gameStateStr;
-    }
-
-    return bestMove.toString();
 }
 
+int toInt(const std::string& value, int fallback = 0) {
+    try {
+        return std::stoi(value);
+    } catch (...) {
+        return fallback;
+    }
+}
+
+std::string trim(const std::string& text) {
+    const auto start = text.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    const auto end = text.find_last_not_of(" \t\r\n");
+    return text.substr(start, end - start + 1);
+}
+
+std::vector<std::string> tokenize(const std::string& line) {
+    std::istringstream iss(line);
+    std::vector<std::string> tokens;
+    std::string token;
+    while (iss >> token) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
+void joinFinishedSearchThreadIfNeeded() {
+    if (g_searchThread.joinable() && !g_searchRunning.load(std::memory_order_acquire)) {
+        g_searchThread.join();
+        resetStopSearchFlag();
+    }
+}
+
+void stopActiveSearch() {
+    if (!g_searchThread.joinable()) {
+        resetStopSearchFlag();
+        return;
+    }
+
+    if (g_searchRunning.load(std::memory_order_acquire)) {
+        requestStopSearch();
+        g_searchThread.join();
+    } else {
+        g_searchThread.join();
+    }
+
+    g_searchRunning.store(false, std::memory_order_release);
+    resetStopSearchFlag();
+}
+
+void printUciIdentification() {
+    std::cout << "id name ChessCPP Engine" << std::endl;
+    std::cout << "id author Mack Rabeau" << std::endl;
+    std::cout << "option name Hash type spin default 64 min 4 max 4096" << std::endl;
+    std::cout << "uciok" << std::endl;
+}
+
+bool applyMoveString(Game& game, const std::string& moveStr) {
+    if (moveStr.size() < 4) return false;
+
+    MovesStruct legal = game.generateAllLegalMoves();
+    for (int i = 0; i < legal.getNumMoves(); ++i) {
+        Move move = legal.getMove(i);
+        if (move.toString() == moveStr) {
+            game.pushMove(move);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool handlePositionCommand(const std::vector<std::string>& tokens, Game& game) {
+    if (tokens.size() < 2) return false;
+
+    size_t index = 1;
+
+    if (tokens[index] == "startpos") {
+        game.setPosition(STARTPOS_FEN);
+        ++index;
+    } else if (tokens[index] == "fen") {
+        if (index + 6 >= tokens.size()) {
+            std::cout << "info string invalid fen supplied" << std::endl;
+            return false;
+        }
+        std::string fen = tokens[index + 1];
+        for (int i = 2; i <= 6; ++i) {
+            fen += " " + tokens[index + i];
+        }
+        game.setPosition(fen);
+        index += 7;
+    } else {
+        std::cout << "info string position command missing startpos/fen" << std::endl;
+        return false;
+    }
+
+    if (index < tokens.size() && tokens[index] == "moves") {
+        ++index;
+        for (; index < tokens.size(); ++index) {
+            if (!applyMoveString(game, tokens[index])) {
+                std::cout << "info string illegal move " << tokens[index] << std::endl;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+GoSettings parseGoCommand(const std::vector<std::string>& tokens) {
+    GoSettings settings;
+    static const std::vector<std::string> keywords = {
+        "searchmoves", "ponder",   "wtime", "btime", "winc", "binc",
+        "movestogo",   "movetime", "depth", "nodes", "mate", "infinite"
+    };
+
+    auto isKeyword = [&](const std::string& value) {
+        return std::find(keywords.begin(), keywords.end(), value) != keywords.end();
+    };
+
+    for (size_t i = 1; i < tokens.size(); ++i) {
+        const std::string& token = tokens[i];
+
+        if (token == "wtime" && i + 1 < tokens.size()) {
+            settings.wtime = toLong(tokens[++i], settings.wtime);
+        } else if (token == "btime" && i + 1 < tokens.size()) {
+            settings.btime = toLong(tokens[++i], settings.btime);
+        } else if (token == "winc" && i + 1 < tokens.size()) {
+            settings.winc = toLong(tokens[++i], settings.winc);
+        } else if (token == "binc" && i + 1 < tokens.size()) {
+            settings.binc = toLong(tokens[++i], settings.binc);
+        } else if (token == "movetime" && i + 1 < tokens.size()) {
+            settings.movetime = toLong(tokens[++i], settings.movetime);
+        } else if (token == "movestogo" && i + 1 < tokens.size()) {
+            settings.movestogo = toInt(tokens[++i], settings.movestogo);
+        } else if (token == "depth" && i + 1 < tokens.size()) {
+            settings.depth = toInt(tokens[++i], settings.depth);
+        } else if (token == "nodes" && i + 1 < tokens.size()) {
+            settings.nodes = toLong(tokens[++i], settings.nodes);
+        } else if (token == "mate" && i + 1 < tokens.size()) {
+            ++i; // mate search not supported, ignore value
+        } else if (token == "ponder") {
+            settings.ponder = true;
+        } else if (token == "infinite") {
+            settings.infinite = true;
+        } else if (token == "searchmoves") {
+            ++i;
+            for (; i < tokens.size(); ++i) {
+                if (isKeyword(tokens[i])) {
+                    --i;
+                    break;
+                }
+                settings.searchMoveStrings.push_back(tokens[i]);
+            }
+        }
+    }
+    return settings;
+}
+
+long computeTimeLimitMs(const GoSettings& settings, const Game& game) {
+    if (settings.movetime > 0) {
+        return settings.movetime;
+    }
+
+    if (settings.infinite || settings.ponder) {
+        return std::numeric_limits<long>::max() / 4;
+    }
+
+    bool whiteToMove = (game.board.gameInfo & 1) != 0;
+    long remaining = whiteToMove ? settings.wtime : settings.btime;
+    long increment = whiteToMove ? settings.winc : settings.binc;
+
+    if (remaining > 0) {
+        int movesToGo = settings.movestogo > 0 ? settings.movestogo : 30;
+        long slice = remaining / std::max(1, movesToGo);
+        long budget = slice + increment;
+        budget = std::max<long>(budget - 50, 10); // stay safe in low time
+        return budget;
+    }
+
+    return 2000; // default fallback
+}
+
+std::vector<Move> resolveSearchMoves(Game& game, const std::vector<std::string>& moveStrs) {
+    std::vector<Move> resolved;
+    if (moveStrs.empty()) return resolved;
+
+    MovesStruct legal = game.generateAllLegalMoves();
+    for (const auto& moveStr : moveStrs) {
+        bool found = false;
+        for (int i = 0; i < legal.getNumMoves(); ++i) {
+            Move move = legal.getMove(i);
+            if (move.toString() == moveStr) {
+                resolved.push_back(move);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            std::cout << "info string ignoring unknown searchmove " << moveStr << std::endl;
+        }
+    }
+    return resolved;
+}
+
+class FastModeGuard {
+public:
+    explicit FastModeGuard(Game& g) : game(g) { game.enableFastMode(); }
+    ~FastModeGuard() { game.disableFastMode(); }
+private:
+    Game& game;
+};
+
+SearchResult runIterativeSearch(Game& game, const GoSettings& settings, const std::vector<Move>& rootFilter) {
+    SearchResult result;
+    FastModeGuard guard(game);
+
+    g_searchStartTime = std::chrono::steady_clock::now();
+    g_timeLimit = computeTimeLimitMs(settings, game);
+    setNodeLimit(settings.nodes > 0 ? settings.nodes : -1);
+
+    resetSearchStats();
+    resetStopSearchFlag();
+
+    const int targetDepth = (settings.depth > 0) ? std::min(settings.depth, MAX_SEARCH_DEPTH) : MAX_SEARCH_DEPTH;
+    const std::vector<Move>* filterPtr = rootFilter.empty() ? nullptr : &rootFilter;
+
+    for (int depth = 1; depth <= targetDepth; ++depth) {
+        Move bestAtDepth = searchAtDepth(game, depth, filterPtr);
+        if (bestAtDepth.getMove()) {
+            result.bestMove = bestAtDepth;
+            result.depthReached = depth;
+        }
+
+        if (isTimeUp()) {
+            break;
+        }
+    }
+
+    printSearchStats();
+    setNodeLimit(-1);
+    return result;
+}
+
+void startSearch(Game& game, const GoSettings& settings, const std::vector<Move>& rootFilter) {
+    joinFinishedSearchThreadIfNeeded();
+    if (g_searchRunning.load(std::memory_order_acquire)) {
+        std::cout << "info string search already running" << std::endl;
+        return;
+    }
+
+    g_searchRunning.store(true, std::memory_order_release);
+    GoSettings settingsCopy = settings;
+    std::vector<Move> filterCopy = rootFilter;
+
+    g_searchThread = std::thread([&game, settingsCopy, filterCopy]() mutable {
+        SearchResult result = runIterativeSearch(game, settingsCopy, filterCopy);
+        std::string bestMove = result.bestMove.getMove() ? result.bestMove.toString() : "0000";
+        std::cout << "bestmove " << bestMove << std::endl;
+        std::cout.flush();
+        g_searchRunning.store(false, std::memory_order_release);
+        resetStopSearchFlag();
+    });
+}
+
+void handleSetOption(const std::string& line) {
+    const auto namePos = line.find("name");
+    if (namePos == std::string::npos) return;
+
+    const auto valuePos = line.find("value", namePos);
+    std::string name = trim(line.substr(namePos + 4, valuePos == std::string::npos ? std::string::npos : valuePos - (namePos + 4)));
+    std::string value = valuePos == std::string::npos ? "" : trim(line.substr(valuePos + 5));
+
+    if (name == "Hash" && !value.empty()) {
+        try {
+            size_t sizeMb = std::stoul(value);
+            stopActiveSearch();
+            g_transpositionTable.resize(sizeMb);
+        } catch (const std::exception&) {
+            std::cout << "info string invalid hash size " << value << std::endl;
+    }
+        return;
+    }
+
+    std::cout << "info string unsupported option " << name << std::endl;
+}
+
+} // namespace
 
 int main() {
-    MoveTables::instance().init(); // Initialize once
-    Game game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // Initial state
+    MoveTables::instance().init();
+    Game game(STARTPOS_FEN);
 
     std::string line;
     while (std::getline(std::cin, line)) {
+        line = trim(line);
+        if (line.empty()) {
+            joinFinishedSearchThreadIfNeeded();
+                continue;
+            }
 
-        std::istringstream iss(line);
+        auto tokens = tokenize(line);
+        if (tokens.empty()) {
+            joinFinishedSearchThreadIfNeeded();
+                continue;
+            }
 
-        std::string requestId, command;
-        iss >> requestId >> command;
+        const std::string& command = tokens[0];
 
-        if (command == "quit") {
-            break;
-
-        } else if (command == "print") {
-            // prints board in terminl
-            game.board.displayBoard();
-
-        } else if (command == "set_position") {
-            std::string fen;
-            iss >> fen;
-            game.setPosition(fen);
-            std::cout << requestId << " ok" << std::endl;
-            
-        } else if (command == "reset") {
-
+        if (command == "uci") {
+            printUciIdentification();
+        } else if (command == "isready") {
+            stopActiveSearch();
+            std::cout << "readyok" << std::endl;
+        } else if (command == "ucinewgame") {
+            stopActiveSearch();
             game.reset();
-            g_transpositionTable.clear();  // Clear TT on reset
-            std::cout << requestId << " ok" << std::endl;
-
-        } else if (command == "best") {
-            std::string bestMove = getBestMove(game);
-
-            std::cout << requestId << " " << bestMove << std::endl;
-
-        } else if (command == "move") {
-            std::string moveStr;
-            iss >> moveStr;
-
-            if (moveStr.length() < 4) {
-                std::cout << requestId << " error: invalid move string" << std::endl;
-                continue;
-            }
-
-            int fromSquare = (moveStr[0] - 'a') + (moveStr[1] - '1') * 8;
-            int toSquare = (moveStr[2] - 'a') + (moveStr[3] - '1') * 8;
-
-            if (!(game.isLegal(fromSquare, toSquare))) {
-                std::cout << requestId << " error: illegal move" << std::endl;
-                continue;
-            }
-
-            enumPiece promoPiece = nEmpty;
-            if (moveStr.length() == 5) {
-                char promoChar = moveStr[4];
-                switch (promoChar) {
-                    case 'n': promoPiece = nKnights; break;
-                    case 'b': promoPiece = nBishops; break;
-                    case 'r': promoPiece = nRooks;   break;
-                    case 'q': promoPiece = nQueens;  break;
-                    default:
-                        std::cout << requestId << " error: invalid promotion piece" << std::endl;
-                        continue;
-                }
-            } 
-
-            Move move(fromSquare, toSquare, game.board.getEnPassantSquare(), game.board.getPieceType(fromSquare), game.board.getPieceType(toSquare), promoPiece);
-            game.pushMove(move);
-
-            std::cout << requestId << " " << game.board.toString() << std::endl;
-
-        } else if (command == "state") {
-            GameState state = game.calculateGameState();
-            std::string gameStateStr;
-            switch (state) {
-                case ONGOING: gameStateStr = "ongoing"; break;
-                case CHECKMATE: gameStateStr = "checkmate"; break;
-                case STALEMATE: gameStateStr = "stalemate"; break;
-                case DRAW_REPETITION: gameStateStr = "draw_repetition"; break;
-                case DRAW_50_MOVE: gameStateStr = "draw_50_move"; break;
-                case DRAW_INSUFFICIENT_MATERIAL: gameStateStr = "draw_insufficient_material"; break;
-                default: gameStateStr = "unknown"; break;
-            }
-
-            std::cout << requestId << " " << gameStateStr << std::endl;
-   
-        } else if (command == "eval") {
-            
-            int evaluation = evaluateBoard(game.board);
-            std::cout << requestId << " " << evaluation << std::endl;
-
+            g_transpositionTable.clear();
         } else if (command == "position") {
-            // Return current board position as FEN
-            std::cout << requestId << " " << game.board.toString() << std::endl;
-
-        } else if (command == "tt_stats"){
-            double usage = g_transpositionTable.getUsage();
-            size_t size = g_transpositionTable.getSize();
-            std::cout << requestId << " size:" << size << " usage:" << usage << "%" << std::endl;
-
-        } else if (command == "debug_best_move") {
-
-            MovesStruct moves = game.generateAllLegalMoves();
-            std::cerr << "=== BEST MOVE DEBUG ===" << std::endl;
-            std::cerr << "Available moves: " << moves.getNumMoves() << std::endl;
-
-            // show engine state
-            std::cerr << "Side to move: " << ((game.board.gameInfo & 1) ? "white" : "black") << std::endl;
-            std::cerr << "g_timeLimit (ms): " << g_timeLimit << " g_nodeCount(start): " << g_nodeCount << std::endl;
-            std::cerr << "TT probes/hits (start): " << g_ttProbes << " / " << g_ttHits << std::endl;
-
-            int rootDepth = MAX_SEARCH_DEPTH; // match searchAtDepth usage
-            resetSearchStats();
-            g_searchStartTime = std::chrono::steady_clock::now();
-
-            Move bestMove = searchAtDepth(game, rootDepth);
-            std::cerr << "searchAtDepth(" << rootDepth << ") returned: " << bestMove.toString() << std::endl;
-
-            // Detailed per-move scoring using same convention as searchAtDepth
-            std::vector<std::pair<int, Move>> allScores;
-            int nodeBefore = g_nodeCount;
-            U64 lastHash = game.board.getHash();
-
-            for (int i = 0; i < moves.getNumMoves(); ++i) {
-                Move move = moves.getMove(i);
-
-                game.pushMove(move);
-                int score = -alphabeta(-30000, 30000, rootDepth - 1, game);
-                game.popMove();
-
-                allScores.push_back({score, move});
-                std::cerr << "Move " << i << ": " << move.toString()
-                        << " Score: " << score << std::endl;
+            stopActiveSearch();
+            if (!handlePositionCommand(tokens, game)) {
+                std::cout << "info string failed to set position" << std::endl;
             }
-
-            // TT stats & nodes used by this debug pass
-            int nodesUsed = g_nodeCount - nodeBefore;
-            std::cerr << "nodes used by debug pass: " << nodesUsed << "  total nodes: " << g_nodeCount << std::endl;
-            std::cerr << "TT probes/hits (end): " << g_ttProbes << " / " << g_ttHits << std::endl;
-
-            // sort and display top moves
-            std::sort(allScores.begin(), allScores.end(),
-                    [](const auto& a, const auto& b) { return a.first > b.first; });
-
-            std::cerr << "\n=== TOP 8 MOVES ===" << std::endl;
-            for (int i = 0; i < std::min(8, (int)allScores.size()); ++i) {
-                std::cerr << i + 1 << ". " << allScores[i].second.toString()
-                        << " (" << allScores[i].first << ")" << std::endl;
-            }
-
-            // detect simple back-and-forth: check if engine's chosen move is the inverse of opponent's last move
-            if (moves.getNumMoves() > 0) {
-                // try to detect last move and inverse (replace with your API if needed)
-                // Example pseudo-check: if (bestMove == inverseOf(lastMove)) warn
-                std::cerr << "Note: if you see the same corner rook moves repeated, add repetition detection in search." << std::endl;
-            }
-            std::cout << requestId << " debug_complete" << std::endl;
-
-        } else if (command == "search_tree") {
-            if (g_recordSearchTree) {
-                stopAndPrintSearchTree();
-            } else {
-                startSearchTree();
-                std::cout << requestId << " search_tree_started" << std::endl;
-            }
-
+        } else if (command == "go") {
+            auto settings = parseGoCommand(tokens);
+            auto rootFilter = resolveSearchMoves(game, settings.searchMoveStrings);
+            startSearch(game, settings, rootFilter);
+        } else if (command == "stop") {
+            stopActiveSearch();
+        } else if (command == "quit") {
+            stopActiveSearch();
+            break;
+        } else if (command == "setoption") {
+            handleSetOption(line);
+        } else if (command == "ponderhit") {
+            std::cout << "info string ponderhit not supported" << std::endl;
         } else {
-            std::cout << requestId << "unknown command" << std::endl;
+            std::cout << "info string unknown command " << command << std::endl;
         }
 
+        joinFinishedSearchThreadIfNeeded();
     }
-    return 0;
 
+    stopActiveSearch();
+    return 0;
 }

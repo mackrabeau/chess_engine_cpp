@@ -1,10 +1,11 @@
 #include "movetables.h"
+#include "bitboard.h"
 
 void MoveTables::init() {
     generateKingMoves();
     generateKnightMoves();
     generatePawnMoves();
-    generateSlidingPieceMoves();
+    MagicBitboard::instance().init();
     generateZobristTables();
 }
 
@@ -82,23 +83,23 @@ void MoveTables::generatePawnMoves() {
     }
 }
 
-void MoveTables::generateSlidingPieceMoves() {
-    for (int square = 0; square < 64; square++) {
-        int col = square % 8, row = square / 8;
+// void MoveTables::generateSlidingPieceMoves() {
+//     for (int square = 0; square < 64; square++) {
+//         int col = square % 8, row = square / 8;
         
-        U64 rookMoves_i = 0ULL, bishopMoves_i = 0ULL;
+//         U64 rookMoves_i = 0ULL, bishopMoves_i = 0ULL;
         
-        for (int c = 0; c < 8; c++) rookMoves_i |= 1ULL << (row * 8 + c);
-        for (int r = 0; r < 8; r++) rookMoves_i ^= 1ULL << (r * 8 + col);
+//         for (int c = 0; c < 8; c++) rookMoves_i |= 1ULL << (row * 8 + c);
+//         for (int r = 0; r < 8; r++) rookMoves_i ^= 1ULL << (r * 8 + col);
 
-        for (int i = 1; i < 8; i++) {
-            if (row - i >= 0 && col - i >= 0) bishopMoves_i |= 1ULL << ((row - i) * 8 + col - i);
-            if (row + i < 8 && col - i >= 0) bishopMoves_i |= 1ULL << ((row + i) * 8 + col - i);
-            if (row - i >= 0 && col + i < 8) bishopMoves_i |= 1ULL << ((row - i) * 8 + col + i);
-            if (row + i < 8 && col + i < 8) bishopMoves_i |= 1ULL << ((row + i) * 8 + col + i);
-        }
-    }
-}
+//         for (int i = 1; i < 8; i++) {
+//             if (row - i >= 0 && col - i >= 0) bishopMoves_i |= 1ULL << ((row - i) * 8 + col - i);
+//             if (row + i < 8 && col - i >= 0) bishopMoves_i |= 1ULL << ((row + i) * 8 + col - i);
+//             if (row - i >= 0 && col + i < 8) bishopMoves_i |= 1ULL << ((row - i) * 8 + col + i);
+//             if (row + i < 8 && col + i < 8) bishopMoves_i |= 1ULL << ((row + i) * 8 + col + i);
+//         }
+//     }
+// }
 
 void MoveTables::updatePawnMoves(U64 &whitePawnMoves, U64 &blackPawnMoves, int row, int col) {
     // White pawns move up (to higher rows)

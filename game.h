@@ -22,6 +22,7 @@ struct BoardState {
     U64 hash;
     U16 gameInfo;
     Move move;
+    enumPiece pieceMoved = nEmpty;  // Piece that was moved (for efficient unmake) - default to nEmpty
 };
 
 struct HistoryNode {
@@ -49,21 +50,22 @@ public:
     bool inMoveGeneration = false; 
     
     Game(const std::string& initialFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") 
-        : 
-        tables(MoveTables::instance()),
-        board(initialFEN), 
-        historyHead(nullptr), 
-        historyTail(nullptr), 
-        historySize(0) ,
-        cachedState(ONGOING),         
-        stateNeedsUpdate(true),      
-        lastStateHash(0),            
-        cachedDrawState(false), 
-        drawStateValid(false),      
-        lastDrawCheckHash(0)  
-    { 
-        state = ONGOING;
-    }
+        : board(initialFEN),
+          state(ONGOING),
+          inMoveGeneration(false),
+          historySize(0),
+          tables(MoveTables::instance()),
+          useStackHistory(false),
+          searchDepth(0),
+          cachedState(ONGOING),
+          stateNeedsUpdate(true),
+          lastStateHash(0),
+          cachedDrawState(false),
+          drawStateValid(false),
+          lastDrawCheckHash(0),
+          historyHead(nullptr),
+          historyTail(nullptr)
+    {}
 
     ~Game() { clearHistory(); }
 
@@ -98,6 +100,7 @@ public:
 
     bool isInCheck(); // check if the current player's king is in check
     bool isInCheck(U8 colour); // check if the specified player's king is in check
+    bool isSquareAttacked(int square, U8 enemyColour); // check if the specified square is attacked by the enemy pieces
 
     void generateMoves(enumPiece pieceType, int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false);    // generates bitmap of all legal moves for that pieces
 

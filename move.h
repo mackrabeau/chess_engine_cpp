@@ -36,12 +36,6 @@ public:
         bool isDoublePawnPush = (piece == nPawns) && (abs((int)from - (int)to) == 16);
         bool isCastle = (piece == nKings) && (abs((int)from - (int)to) == 2);
         bool isQueenCastle = isCastle && (to == 2 || to == 58);
-
-        // promotion piece selection (for now, always queen)
-        // int promotionType = 0; // 0=knight, 1=bishop, 2=rook, 3=queen
-        // if (isPromotion) {
-        //     promotionType = 3; // assume user chose queen
-        // }
         
         if (promoType != nEmpty) {
             if (isCapture) {
@@ -125,9 +119,6 @@ public:
     inline bool isQueenCastle() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) == QUEEN_CASTLE; }
     inline bool isEPCapture() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) == EP_CAPTURE; }
     inline bool isPromotion() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) >= KNIGHT_PROMO && ((move & FLAGS_MASK) >> FLAGS_SHIFT) <= QUEEN_PROMO; } // knight, bishop, rook, queen promotion
-
-
-    
 
     inline bool isPromoCapture() const {
         int flags = (move & FLAGS_MASK) >> FLAGS_SHIFT;

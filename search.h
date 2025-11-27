@@ -4,6 +4,8 @@
 #include "evaluation.h"
 #include "transposition.h"
 #include <unordered_map>
+#include <vector>
+#include <atomic>
 
 const int MATE_VALUE = 30000;
 const int MATE_THRESHOLD = 29000;  
@@ -15,6 +17,7 @@ extern long g_ttProbes;
 
 extern std::chrono::steady_clock::time_point g_searchStartTime;
 extern long g_timeLimit;
+extern long g_nodeLimit;
 
 const int MAX_SEARCH_DEPTH = 50;
 extern Move killerMoves[MAX_SEARCH_DEPTH][2];
@@ -33,11 +36,15 @@ void recordEntry(const Game& game, int depth, int alpha, int beta);
 void recordExit(const Game& game, int depth, int score);
 
 bool isTimeUp();
+void requestStopSearch();
+void resetStopSearchFlag();
+bool isStopSearchRequested();
+void setNodeLimit(long limit);
 
-Move searchAtDepth(Game& game, int depth);
+Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter = nullptr);
 int quiescenceSearch(int alpha, int beta, Game& game, int qDepth);
 int alphabeta(int alpha, int beta, int depth, Game& game);
-int getTerminalValue(Game& game, int depth);
+int getTerminalValue(Game& game);
 void resetSearchStats();
 void printSearchStats();
 

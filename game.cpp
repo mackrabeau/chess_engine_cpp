@@ -1,13 +1,20 @@
 #include "game.h"
+#include "bitboard.h"
 
 using namespace std;
 
 void Game::pushMove(const Move& move) {
 
+    // move data - compute piece type before we modify the board
+    const U8 from = move.getFrom(); // extract from square, mask to 6 bits
+    const U8 to = move.getTo(); // extract to square, mask to 6 bits
+    const enumPiece piece = board.getPieceType(from);
+
     if (useStackHistory) {
         searchHistory[searchDepth].move = move;
         searchHistory[searchDepth].gameInfo = board.gameInfo;
         searchHistory[searchDepth].hash = board.hash;
+        searchHistory[searchDepth].pieceMoved = piece; // Store piece type for efficient unmake
         
         searchDepth++;
 
@@ -16,17 +23,12 @@ void Game::pushMove(const Move& move) {
         BoardState currentState;   
         currentState.move = move;
         currentState.gameInfo = board.gameInfo;
-        currentState.hash = board.hash; 
+        currentState.hash = board.hash;
+        currentState.pieceMoved = piece; // Store piece type for efficient unmake
         pushBoardState(currentState);
     }
-
-    // move data
-    const U8 from = move.getFrom(); // extract from square, mask to 6 bits
-    const U8 to = move.getTo(); // extract to square, mask to 6 bits
-    const U16 moveInt = move.getMove(); // get the full move
-    const enumPiece piece = board.getPieceType(from);
     const enumPiece colour = board.getColourType(from);
-    const enumPiece capturedPiece = board.getPieceType(to);
+    const enumPiece capturedPiece = move.getCapturedPiece();
     const enumPiece capturedColour = colour == nWhite ? nBlack : nWhite;
     const moveType moveType = move.getMoveType();
 
@@ -72,7 +74,7 @@ void Game::pushMove(const Move& move) {
         } 
     }
 
-    board.updateCastlePieces(moveType, piece, colour); // update castling rights if necessary
+    board.updateCastlePieces(moveType, colour); // update castling rights if necessary
 
     // update halfmove clock
     if (move.isCapture() || piece == nPawns){
@@ -146,6 +148,7 @@ void Game::enableFastMode() {
     searchHistory[0].move = Move();                // empty/dummy move
     searchHistory[0].gameInfo = board.gameInfo;
     searchHistory[0].hash = board.getHash();
+    searchHistory[0].pieceMoved = nEmpty;          // dummy piece for empty move
     searchDepth = 1;
 }
 
@@ -154,7 +157,6 @@ void Game::disableFastMode() {
 }
 
 void Game::popMove() {
-
 
     BoardState prevState;
 
@@ -179,19 +181,28 @@ void Game::popMove() {
     board.gameInfo = prevState.gameInfo;
     board.hash = prevState.hash; // restore the hash from the previous state
     Move move = prevState.move;
+    enumPiece pieceMoved = prevState.pieceMoved; // Use stored piece type (original piece)
 
+    if (move.getMove() == 0) return; // safety checks
 
     int from = move.getFrom();
     int to = move.getTo();
     int flags = move.getFlags();
     enumPiece capturedPiece = move.getCapturedPiece();
-    enumPiece pieceMoved = board.getPieceType(to);
+
+    // Determine what piece is currently on the board at 'to' to remove it
+    // For normal moves, it's the same as pieceMoved.
+    // For promotions, it's the promoted piece (e.g., Queen), not the original (Pawn).
+    enumPiece pieceToRemove = pieceMoved;
+    if (move.isPromotion() || move.isPromoCapture()) {
+        pieceToRemove = move.getPromotionPiece();
+    }
 
     enumPiece enemyColour = board.enemyColour();
     enumPiece friendlyColour = board.friendlyColour();
     int epSquare;
 
-    board.removePiece(to, pieceMoved, friendlyColour);
+    board.removePiece(to, pieceToRemove, friendlyColour);
 
     switch (flags) {
         case QUIET_MOVES: 
@@ -393,75 +404,12 @@ BoardState Game::popBoardState() {
 }
 
 U64 Game::getRookAttacks(U64 occupancy, int square) {
-    U64 attacks = 0ULL;
-    int r = square / 8, c = square % 8;
-
-    // up
-    for (int i = r + 1; i < 8; ++i) {
-        int sq = i * 8 + c;
-        attacks |= 1ULL << sq;
-        if (occupancy & (1ULL << sq)) break;
-    }
-
-    // down
-    for (int i = r - 1; i >= 0; --i) {
-        int sq = i * 8 + c;
-        attacks |= 1ULL << sq;
-        if (occupancy & (1ULL << sq)) break;
-    }
-
-    // right
-    for (int i = c + 1; i < 8; ++i) {
-        int sq = r * 8 + i;
-        attacks |= 1ULL << sq;
-        if (occupancy & (1ULL << sq)) break;
-    }
-
-    // left
-    for (int i = c - 1; i >= 0; --i) {
-        int sq = r * 8 + i;
-        attacks |= 1ULL << sq;
-        if (occupancy & (1ULL << sq)) break;
-    }
-
-    return attacks;
+    return MagicBitboard::instance().rookAttacks(square, occupancy);
 }
 
 U64 Game::getBishopAttacks(U64 occupancy, int square) {
-    U64 attacks = 0ULL;
-    int r = square / 8, c = square % 8;
-
-    // up-right
-    for (int i = 1; r + i < 8 && c + i < 8; ++i) {
-        int sq = (r + i) * 8 + (c + i);
-        attacks |= 1ULL << sq;
-        if (occupancy & (1ULL << sq)) break;
-    }
-
-    // up-left
-    for (int i = 1; r + i < 8 && c - i >= 0; ++i) {
-        int sq = (r + i) * 8 + (c - i);
-        attacks |= 1ULL << sq;
-        if (occupancy & (1ULL << sq)) break;
-    }
-
-    // down-right
-    for (int i = 1; r - i >= 0 && c + i < 8; ++i) {
-        int sq = (r - i) * 8 + (c + i);
-        attacks |= 1ULL << sq;
-        if (occupancy & (1ULL << sq)) break;
-    }
-
-    // down-left
-    for (int i = 1; r - i >= 0 && c - i >= 0; ++i) {
-        int sq = (r - i) * 8 + (c - i);
-        attacks |= 1ULL << sq;
-        if (occupancy & (1ULL << sq)) break;
-    }
-
-    return attacks;
+    return MagicBitboard::instance().bishopAttacks(square, occupancy);
 }
-
 
 
 MovesStruct Game::generateAllLegalMoves(bool isCaptureOnly) {    
@@ -494,15 +442,12 @@ MovesStruct Game::generateAllLegalMoves(bool isCaptureOnly) {
             legalMoves.addMove(move); // if the move doesn't leave the king in check, add it to legal moves
         } 
         popMove(); // revert the move after checking
-
     }
-
     
     inMoveGeneration = false;
 
     return legalMoves;
 };
-
 
 MovesStruct Game::generatePseudoLegalMoves(){    
 
@@ -698,41 +643,47 @@ U64 Game::attackedBB(U8 enemyColour) {
     return attacked;
 }
 
-
 void Game::addMovesToStruct(MovesStruct& moves, int square, U64 movesBB) {
     // remove moves that land on friendly pieces
-    movesBB &= ~board.pieceBB[board.friendlyColour()];
+    movesBB &= ~board.getFriendlyPieces();
+    int epSquare = board.getEnPassantSquare();
+    enumPiece pieceType = board.getPieceType(square);
     
     while(movesBB) {
         int to = __builtin_ctzll(movesBB);
         movesBB &= movesBB - 1;
-
-        Move move(square, to, board.getEnPassantSquare(), board.getPieceType(square), board.getPieceType(to));
+        Move move(square, to, epSquare, pieceType, board.getPieceType(to));
         moves.addMove(move);
     }
 }
 
 void Game::addPawnMovesToStruct(MovesStruct& moves, int square, U64 movesBB) {
-    enumPiece friendlyColour = board.friendlyColour();
     // remove moves that land on friendly pieces
-    movesBB &= ~board.pieceBB[friendlyColour];
+    movesBB &= ~board.getFriendlyPieces();
     
+    int epSquare = board.getEnPassantSquare();
+    enumPiece pieceType = board.getPieceType(square);
+
+    U64 promotionSquares = movesBB & (0xFFULL | 0xFF00000000000000ULL); // Ranks 1 and 8
+
     while(movesBB) {
         int to = __builtin_ctzll(movesBB);
         movesBB &= movesBB - 1;
 
+        enumPiece capturedPiece = board.getPieceType(to);
+
         // promotion check
-        if (to >= 56 || to <= 7){
-            Move move1(square, to, board.getEnPassantSquare(), board.getPieceType(square), board.getPieceType(to), nKnights);
-            Move move2(square, to, board.getEnPassantSquare(), board.getPieceType(square), board.getPieceType(to), nBishops);
-            Move move3(square, to, board.getEnPassantSquare(), board.getPieceType(square), board.getPieceType(to), nRooks);
-            Move move4(square, to, board.getEnPassantSquare(), board.getPieceType(square), board.getPieceType(to), nQueens);
+        if (promotionSquares & (1ULL << to)) {
+            Move move1(square, to, epSquare, pieceType, capturedPiece, nKnights);
+            Move move2(square, to, epSquare, pieceType, capturedPiece, nBishops);
+            Move move3(square, to, epSquare, pieceType, capturedPiece, nRooks);
+            Move move4(square, to, epSquare, pieceType, capturedPiece, nQueens);
             moves.addMove(move1);
             moves.addMove(move2);
             moves.addMove(move3);   
             moves.addMove(move4);
         } else {
-            Move move(square, to, board.getEnPassantSquare(), board.getPieceType(square), board.getPieceType(to));
+            Move move(square, to, epSquare, pieceType, capturedPiece);
             moves.addMove(move);
         }
     }
@@ -744,25 +695,57 @@ bool Game::isInCheck() {
 
 bool Game::isInCheck(U8 colour) {
     // Find the king's bitboard for the given colour
-    U64 kingBB = 0ULL;
-    U8 enemyColour;
+    int kingSquare = __builtin_ctzll(colour == nWhite ? board.getWhiteKing() : board.getBlackKing());
+    U8 enemyColour = (colour == nWhite) ? nBlack : nWhite;
+    return isSquareAttacked(kingSquare, enemyColour);  // Only check one square
+}
 
-    if (colour == nWhite) {
-        kingBB = board.getWhiteKing();
-        enemyColour = nBlack;
-    } else {
-        kingBB = board.getBlackKing();
-        enemyColour = nWhite;
+bool Game::isSquareAttacked(int square, U8 enemyColour) {
+    U64 occupied = board.getAllPieces(); 
+    
+    U64 knightAttacks = tables.knightBB[square];
+    if (knightAttacks & (enemyColour == nWhite ? board.getWhiteKnights() : board.getBlackKnights())) {
+        return true;
+    }
+    
+    U64 kingAttacks = tables.kingBB[square];
+    if (kingAttacks & (enemyColour == nWhite ? board.getWhiteKing() : board.getBlackKing())) {
+        return true;
+    }
+    
+    U64 bishopAttacks = MagicBitboard::instance().bishopAttacks(square, occupied);
+    U64 bishopsQueens = (enemyColour == nWhite ? board.getWhiteBishops() : board.getBlackBishops()) |
+                        (enemyColour == nWhite ? board.getWhiteQueens() : board.getBlackQueens());
+    if (bishopAttacks & bishopsQueens) {
+        return true;
+    }
+    
+    U64 rookAttacks = MagicBitboard::instance().rookAttacks(square, occupied);
+    U64 rooksQueens = (enemyColour == nWhite ? board.getWhiteRooks() : board.getBlackRooks()) |
+                      (enemyColour == nWhite ? board.getWhiteQueens() : board.getBlackQueens());
+    if (rookAttacks & rooksQueens) {
+        return true;
     }
 
-    // If there is no king on the board, not in check (defensive)
-    if (kingBB == 0) return false;
+    int row = square / 8;
+    int col = square % 8;
+    U64 enemyPawns = (enemyColour == nWhite ? board.getWhitePawns() : board.getBlackPawns());
+    
+    if (enemyColour == nWhite) {
+        // White pawns attack from below (row-1)
+        if (row > 0) {
+            if (col > 0 && (enemyPawns & (1ULL << ((row-1)*8 + (col-1))))) return true;
+            if (col < 7 && (enemyPawns & (1ULL << ((row-1)*8 + (col+1))))) return true;
+        }
+    } else {
+        // Black pawns attack from above (row+1)
+        if (row < 7) {
+            if (col > 0 && (enemyPawns & (1ULL << ((row+1)*8 + (col-1))))) return true;
+            if (col < 7 && (enemyPawns & (1ULL << ((row+1)*8 + (col+1))))) return true;
+        }
+    }
 
-    // Use MoveGenerator to get all squares attacked by the enemy
-    U64 attacked = attackedBB(enemyColour);
-
-    // If the king's square is attacked, return true
-    return (kingBB & attacked) != 0;
+    return false;
 }
 
 bool Game::isLegal(const U8 from, const U8 to) {

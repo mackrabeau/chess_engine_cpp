@@ -19,6 +19,8 @@ public:
 
     Board(const std::string& fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); 
     Board(const Board& other);
+    Board& operator=(const Board& other) = default;
+    
     Board(U64 otherPieceBB[8], const U16& otherGameInfo, const U64& otherHash);
     std::string toString() const; // FEN representation
 
@@ -50,9 +52,6 @@ public:
 
     inline void clearEpSquare() {
         if (!(gameInfo & EP_IS_SET)) return;
-
-        int epFile = (gameInfo & EP_FILE_MASK) >> EP_FILE_SHIFT;
-        // hash ^= MoveTables::instance().zobristEnPassant[epFile]; // remove old en passant square from hash
         gameInfo &= ~(EP_IS_SET | EP_FILE_MASK); // clear en passant square
     }
 
@@ -66,7 +65,7 @@ public:
         // hash ^= MoveTables::instance().zobristCastling[castlingIndex];
     }
 
-    inline void updateCastlePieces(moveType moveType, enumPiece piece, enumPiece colour){
+    inline void updateCastlePieces(moveType moveType, enumPiece colour){
         // Handle special moves like castling and en passant captures
         if (moveType == KING_CASTLE) {
             if (colour == nWhite) {
@@ -112,11 +111,11 @@ public:
         }
 
         // update castling zorbist hash
-        int newCastlingIdx = 0;
-        if (gameInfo & WK_CASTLE) newCastlingIdx |= 1;
-        if (gameInfo & WQ_CASTLE) newCastlingIdx |= 2;
-        if (gameInfo & BK_CASTLE) newCastlingIdx |= 4;
-        if (gameInfo & BQ_CASTLE) newCastlingIdx |= 8;
+        // int newCastlingIdx = 0;
+        // if (gameInfo & WK_CASTLE) newCastlingIdx |= 1;
+        // if (gameInfo & WQ_CASTLE) newCastlingIdx |= 2;
+        // if (gameInfo & BK_CASTLE) newCastlingIdx |= 4;
+        // if (gameInfo & BQ_CASTLE) newCastlingIdx |= 8;
         // hash ^= MoveTables::instance().zobristCastling[newCastlingIdx];
     }
 
@@ -148,12 +147,16 @@ public:
     }
 
     inline enumPiece getPieceType(int square) const {
-        if (pieceBB[nPawns] >> square & 1) return nPawns;
-        if (pieceBB[nBishops] >> square & 1) return nBishops;
-        if (pieceBB[nKnights] >> square & 1) return nKnights;
-        if (pieceBB[nRooks] >> square & 1) return nRooks;
-        if (pieceBB[nQueens] >> square & 1) return nQueens;
-        if (pieceBB[nKings] >> square & 1) return nKings;
+        U64 squareBB = 1ULL << square;
+
+        if (!((pieceBB[nWhite]| pieceBB[nBlack]) & squareBB)) return nEmpty;
+
+        if (pieceBB[nPawns] & squareBB) return nPawns;
+        if (pieceBB[nBishops] & squareBB) return nBishops;
+        if (pieceBB[nKnights] & squareBB) return nKnights;
+        if (pieceBB[nRooks] & squareBB) return nRooks;
+        if (pieceBB[nQueens] & squareBB) return nQueens;
+        if (pieceBB[nKings] & squareBB) return nKings;
         return nEmpty;
     }
 

@@ -5,18 +5,22 @@
 #include <vector>
 #include <algorithm>
 #include <sstream>
+#include <unordered_set>
+#include <atomic>
 
 using namespace std;
 
-extern std::chrono::steady_clock::time_point g_searchStartTime;
-extern long g_timeLimit;
+std::chrono::steady_clock::time_point g_searchStartTime;
+long g_timeLimit = 20000;  // ms
 
+long g_nodeLimit = -1;
 long g_nodeCount = 0;
 long g_ttHits = 0;
 long g_ttProbes = 0;
 
 bool g_timeoutOccurred = false;
 Move killerMoves[MAX_SEARCH_DEPTH][2];
+std::atomic<bool> g_stopRequested(false);
 
 std::vector<std::string> g_searchTree;
 int g_currentPly = 0;
@@ -26,12 +30,6 @@ size_t g_searchTreeMaxLines = 200000;
 static inline int getPlyFromRoot() {
     return g_currentPly > 0 ? g_currentPly : 0; // Ensure we don't return negative ply
 }
-
-// static inline int clampNonTerminalValue(int value) {
-//     if (value > MATE_THRESHOLD) return MATE_THRESHOLD - 10;
-//     if (value < -MATE_THRESHOLD) return -MATE_THRESHOLD + 10;
-//     return value;
-// }
 
 void startSearchTree() {
     g_searchTree.clear();
@@ -79,7 +77,13 @@ void recordExit(const Game& game, int depth, int score) {
 
 
 bool isTimeUp() {
-    // return false;
+    if (g_stopRequested.load(std::memory_order_relaxed)) {
+        return true;
+    }
+
+    if (g_nodeLimit > 0 && g_nodeCount >= g_nodeLimit) {
+        return true;
+    }
 
     if (g_timeoutOccurred) return true;
 
@@ -94,6 +98,22 @@ bool isTimeUp() {
         }
     }
     return false;
+}
+
+void requestStopSearch() {
+    g_stopRequested.store(true, std::memory_order_relaxed);
+}
+
+void resetStopSearchFlag() {
+    g_stopRequested.store(false, std::memory_order_relaxed);
+}
+
+bool isStopSearchRequested() {
+    return g_stopRequested.load(std::memory_order_relaxed);
+}
+
+void setNodeLimit(long limit) {
+    g_nodeLimit = limit;
 }
 
 void resetSearchStats() {
@@ -138,7 +158,7 @@ int restoreMateScore(int score, int plyFromRoot) {
 }
 
 
-int getTerminalValue(Game& game, int depth) {
+int getTerminalValue(Game& game) {
     int ply = getPlyFromRoot();
     if (game.isInCheck()) {
         return -MATE_VALUE + ply;
@@ -173,7 +193,7 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
     }
 
     if (game.isPositionTerminal()) {
-        int score = getTerminalValue(game, depth);
+        int score = getTerminalValue(game);
         if (depth > 0) {
             int adjustedScore = adjustMateScore(score, getPlyFromRoot());
             g_transpositionTable.store(hash, adjustedScore, depth, TT_EXACT, Move());
@@ -199,7 +219,7 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 
     // no legal moves --> checkmate or stalemate
     if (legalMoves.getNumMoves() == 0) {
-        int score = getTerminalValue(game, depth);
+        int score = getTerminalValue(game);
 
         if (depth > 0) {
             int adjustedScore = adjustMateScore(score, getPlyFromRoot());
@@ -297,32 +317,45 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 }
 
 
-Move searchAtDepth(Game& game, int depth) {
+Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
 
     MovesStruct legalMoves = game.generateAllLegalMoves();
     if (legalMoves.getNumMoves() == 0) return Move();
+
+    std::unordered_set<U32> filterSet;
+    if (rootFilter && !rootFilter->empty()) {
+        filterSet.reserve(rootFilter->size());
+        for (const auto& move : *rootFilter) {
+            filterSet.insert(move.getMove());
+        }
+    }
     
     int alpha = -MATE_VALUE;
     int bestScore = -MATE_VALUE;
     int beta = MATE_VALUE;
 
     Move bestMove;
+    bool foundMove = false;
 
     for (int i = 0; i < legalMoves.getNumMoves(); ++i) {
         if (isTimeUp()) break;
         
         Move move = legalMoves.getMove(i);
+        if (!filterSet.empty() && filterSet.find(move.getMove()) == filterSet.end()) {
+            continue;
+        }
         
         game.pushMove(move);
         int score = -alphabeta(-beta, -alpha, depth - 1, game);
         game.popMove();
 
-        if (score > bestScore) {
+        if (score > bestScore || !foundMove) {
             bestScore = score;
             bestMove = move;
+            foundMove = true;
         }
     }
-    return bestMove;
+    return foundMove ? bestMove : Move();
 }
 
 void updateKillerMove(Move move, int depth) {

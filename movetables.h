@@ -36,8 +36,7 @@ private:
     void generatePawnMoves();
     void generateZobristTables();
 
-    
-    void generateSlidingPieceMoves();
+    // void generateSlidingPieceMoves();
 
     void updateBitboard(U64 &bitboard, int row, int col, int move[2]);
     void updatePawnMoves(U64 &whitePawnMoves, U64 &blackPawnMoves, int row, int col);

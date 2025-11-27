@@ -51,9 +51,6 @@ constexpr U8 TO_SHIFT = 0; // shift for to square
 constexpr U32 CAPTURED_PIECE_MASK = 0xF0000; // bits 16-19
 constexpr U8 CAPTURED_PIECE_SHIFT = 16; // shift for captured piece
 
-// constexpr U32 PREV_FLAGS_MASK = 0xF0000000; // bits 16-19
-// constexpr U8 PREV_FLAGS_SHIFT = 16; // shift for previous flags
-
 // constexpr U32 PREV_FROM_MASK = 0xFC00000; // bits 20-25
 // constexpr U8 PREV_FROM_SHIFT = 20; // shift for previous from square
 
@@ -124,12 +121,8 @@ constexpr U64 BK_CASTLE_MASK  = (1ULL << 61) | (1ULL << 62);
 // Black queen-side castle (e8 to c8): squares d8 (59), c8 (58), b8 (57)
 constexpr U64 BQ_CASTLE_MASK = (1ULL << 59) | (1ULL << 58) | (1ULL << 57);
 
-
-
-
 //  ====== EVALUATION CONSTANTS =====
 // these should be moved soon
-
 
 // white pawn table 
 const int wpTable[64] = {
@@ -296,8 +289,6 @@ const int bkEndTable[64] = {
     -30,-20,-10,  0,  0,-10,-20,-30,
     -50,-40,-30,-20,-20,-30,-40,-50
 };
-
-
 
 
 #endif // TYPES_H
