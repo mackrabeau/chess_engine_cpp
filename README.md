@@ -28,7 +28,7 @@ Modern C++ bitboard chess engine with a UCI interface, iterative-deepening searc
 └── Makefile              # Build targets for engine/perft
 ```
 
-## 🛠️ Building
+## Building
 
 ### Prerequisites
 - A C++17 compiler (tested with g++).
@@ -94,7 +94,7 @@ Compare against the reference starting-position perft values:
 
 Modify `perft.cpp` to plug in custom FENs or depths when debugging move generation.
 
-## 🧱 Technical Notes
+## Technical Notes
 
 ### Move Representation
 - 16-bit packed value:
