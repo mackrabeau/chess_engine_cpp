@@ -7,6 +7,7 @@ void MoveTables::init() {
     generatePawnMoves();
     MagicBitboard::instance().init();
     generateZobristTables();
+    generateRays();
 }
 
 void MoveTables::generateZobristTables() {
@@ -83,23 +84,45 @@ void MoveTables::generatePawnMoves() {
     }
 }
 
-// void MoveTables::generateSlidingPieceMoves() {
-//     for (int square = 0; square < 64; square++) {
-//         int col = square % 8, row = square / 8;
-        
-//         U64 rookMoves_i = 0ULL, bishopMoves_i = 0ULL;
-        
-//         for (int c = 0; c < 8; c++) rookMoves_i |= 1ULL << (row * 8 + c);
-//         for (int r = 0; r < 8; r++) rookMoves_i ^= 1ULL << (r * 8 + col);
+void MoveTables::generateRays() {
+    for (int from = 0; from < 64; from++) {
+        for (int to = 0; to < 64; to++) {
 
-//         for (int i = 1; i < 8; i++) {
-//             if (row - i >= 0 && col - i >= 0) bishopMoves_i |= 1ULL << ((row - i) * 8 + col - i);
-//             if (row + i < 8 && col - i >= 0) bishopMoves_i |= 1ULL << ((row + i) * 8 + col - i);
-//             if (row - i >= 0 && col + i < 8) bishopMoves_i |= 1ULL << ((row - i) * 8 + col + i);
-//             if (row + i < 8 && col + i < 8) bishopMoves_i |= 1ULL << ((row + i) * 8 + col + i);
-//         }
-//     }
-// }
+            int fromRow = from / 8, fromCol = from % 8;
+            int toRow = to / 8, toCol = to % 8;
+
+            int rowDiff = toRow - fromRow;
+            int colDiff = toCol - fromCol;
+
+            bool sameRank = fromRow == toRow;
+            bool sameFile = fromCol == toCol;
+            bool sameDiagonal = abs(fromRow - toRow) == abs(fromCol - toCol);
+
+
+            if (!sameRank && !sameFile && !sameDiagonal) {
+                rays[from][to] = 0ULL;
+                continue;
+            }
+
+            int rowDir = (rowDiff == 0) ? 0 : (rowDiff > 0) ? 1 : -1;
+            int colDir = (colDiff == 0) ? 0 : (colDiff > 0) ? 1 : -1;
+
+            U64 ray = 0ULL;
+            int r = fromRow + rowDir;
+            int c = fromCol + colDir;
+
+            while (r >= 0 && r < 8 && c >= 0 && c < 8) {
+                int square = r * 8 + c;
+                ray |= 1ULL << square;
+                if (square == to) break;
+                r += rowDir;
+                c += colDir;
+            }
+            // ray |= 1ULL << from; // include starting square in ray
+            rays[from][to] = ray;
+        }
+    }
+}
 
 void MoveTables::updatePawnMoves(U64 &whitePawnMoves, U64 &blackPawnMoves, int row, int col) {
     // White pawns move up (to higher rows)

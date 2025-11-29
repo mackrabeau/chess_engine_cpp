@@ -10,6 +10,10 @@ void Game::pushMove(const Move& move) {
     const U8 to = move.getTo(); // extract to square, mask to 6 bits
     const enumPiece piece = board.getPieceType(from);
 
+    // invalidate cached pinned pieces and masks
+    cachedPinnedPieces = 0ULL;
+    memset(cachedPinnedMasks, 0ULL, sizeof(cachedPinnedMasks));
+
     if (useStackHistory) {
         searchHistory[searchDepth].move = move;
         searchHistory[searchDepth].gameInfo = board.gameInfo;
@@ -159,6 +163,10 @@ void Game::disableFastMode() {
 void Game::popMove() {
 
     BoardState prevState;
+
+    // invalidate cached pinned pieces and masks
+    cachedPinnedPieces = 0ULL;
+    memset(cachedPinnedMasks, 0ULL, sizeof(cachedPinnedMasks));
 
     if (useStackHistory) {
         // stack --> fast move generation
@@ -419,6 +427,9 @@ MovesStruct Game::generateAllLegalMoves(bool isCaptureOnly) {
 
     inMoveGeneration = true;
 
+    // computes all pinned pieces 
+    currentPinnedPieces = getPinnedPieces(board.friendlyColour());
+
     U64 pieces = board.getFriendlyPieces(); // get all friendly pieces
 
     while (pieces) {
@@ -443,7 +454,8 @@ MovesStruct Game::generateAllLegalMoves(bool isCaptureOnly) {
         } 
         popMove(); // revert the move after checking
     }
-    
+   
+    currentPinnedPieces = 0ULL;  // reset pinned pieces for next search
     inMoveGeneration = false;
 
     return legalMoves;
@@ -644,10 +656,20 @@ U64 Game::attackedBB(U8 enemyColour) {
 }
 
 void Game::addMovesToStruct(MovesStruct& moves, int square, U64 movesBB) {
+
+    // check if piece is pinned (non-king only)
+    enumPiece pieceType = board.getPieceType(square);
+    if (pieceType != nKings) {
+        if (currentPinnedPieces & (1ULL << square)) {
+            // only compute mask if actually pinned
+            U64 pinnedMask = getPinnedMask(square, board.friendlyColour());
+            movesBB &= pinnedMask;
+        }
+    }
+
     // remove moves that land on friendly pieces
     movesBB &= ~board.getFriendlyPieces();
     int epSquare = board.getEnPassantSquare();
-    enumPiece pieceType = board.getPieceType(square);
     
     while(movesBB) {
         int to = __builtin_ctzll(movesBB);
@@ -658,6 +680,14 @@ void Game::addMovesToStruct(MovesStruct& moves, int square, U64 movesBB) {
 }
 
 void Game::addPawnMovesToStruct(MovesStruct& moves, int square, U64 movesBB) {
+
+    // fast check if pawn is pinned
+    if (currentPinnedPieces & (1ULL << square)) {
+        // only compute mask if actually pinned
+        U64 pinnedMask = getPinnedMask(square, board.friendlyColour());
+        movesBB &= pinnedMask;
+    }
+
     // remove moves that land on friendly pieces
     movesBB &= ~board.getFriendlyPieces();
     
@@ -784,8 +814,6 @@ bool Game::isFiftyMoveRule() const {
     return ((board.gameInfo & MOVE_MASK) >> 6) >= 100;
 }
 
-
-// ...existing code...
 bool Game::isThreefoldRepetition() const {
     U64 currentHash = board.getHash();
     int count = 1; // include current position
@@ -832,36 +860,164 @@ bool Game::isThreefoldRepetition() const {
     return false;
 }
 
+U64 Game::getPinnedPieces(U8 colour){
+    if (cachedPinnedPieces != 0ULL) return cachedPinnedPieces;
 
-// bool Game::isThreefoldRepetition() const {
-//     U64 currentHash = board.getHash();
-//     int count = 1;
+    U8 enemyColour = (colour == nWhite) ? nBlack : nWhite;
+    // Early exit: if no enemy sliding pieces, no pins possible
+    U64 enemySliding = (enemyColour == nWhite) ?
+        (board.getWhiteBishops() | board.getWhiteRooks() | board.getWhiteQueens()) :
+        (board.getBlackBishops() | board.getBlackRooks() | board.getBlackQueens());
+    
+    if (!enemySliding) {
+        cachedPinnedPieces = 0ULL;  // Explicitly set to 0
+        return 0ULL;
+    }
 
-//     if (useStackHistory) {
-//         for (int i = searchDepth - 1; i >= 0; i--){
+    U64 pinnedPieces = 0ULL;
 
-//             if (searchHistory[i].hash == currentHash) {
-//                 if (++count >= 3) return true;
+    // get king square
+    U64 kingBB = (colour == nWhite) ? board.getWhiteKing() : board.getBlackKing();
+    if (!kingBB) return 0ULL;
+    int kingSquare = __builtin_ctzll(kingBB);
+    int kingRow = kingSquare / 8;
+    int kingCol = kingSquare % 8;
 
-//                 // if (!(searchHistory[i].gameInfo & MOVE_MASK)) return false; // if halfmove clock is not set, it's not a repetition
-//                 // if (searchHistory[i].move.isCapture()) return false;
-//                 // if ( board.getPieceType(searchHistory[i].move.getFrom()) == nPawns ) return false;
-//             }
-//         }
-//     }
+    U64 occupied = board.getAllPieces();
+    U64 friendlyPieces = board.getFriendlyPieces();
 
-//     // otherwise use linked list implementation
-//     for (HistoryNode* node = historyTail; node != nullptr; node = node->prev) {
-//         if (node->state.hash == currentHash) {
-//             if (++count >= 3) return true;
+    U64 enemyBishopsQueens = (enemyColour == nWhite) ? 
+        board.getWhiteBishops() | board.getWhiteQueens() : 
+        board.getBlackBishops() | board.getBlackQueens();
 
-//             // if (!(node->state.gameInfo & MOVE_MASK)) return false; // if halfmove clock is not set, it's not a repetition
-//             // if (node->state.move.isCapture()) return false;
-//             // if ( board.getPieceType(node->state.move.getFrom()) == nPawns ) return false;
-//         }
-//     }
-//     return false;   
-// }
+    while (enemyBishopsQueens) {
+        int enemySquare = __builtin_ctzll(enemyBishopsQueens);
+        enemyBishopsQueens &= enemyBishopsQueens - 1;
+
+        int enemyRow = enemySquare / 8;
+        int enemyCol = enemySquare % 8;
+
+        // only consider diagonals
+        if (abs(enemyRow - kingRow) != abs(enemyCol - kingCol)) continue;
+
+        // ray from king to enemy piece
+        U64 ray = tables.rays[kingSquare][enemySquare];
+        if (!ray) continue;
+
+        // exclude king square and enemysquare to get all squares in between
+        U64 interior = ray & ~((1ULL << kingSquare) | (1ULL << enemySquare));   
+        U64 occupiedInterior = interior & occupied;
+
+        if (__builtin_popcountll(occupiedInterior) != 1) continue; // No Pin!
+
+        if (occupiedInterior & friendlyPieces) {
+            pinnedPieces |= (occupiedInterior & friendlyPieces);
+        }
+    }
+
+    U64 enemyRooksQueens = (enemyColour == nWhite) ? 
+        board.getWhiteRooks() | board.getWhiteQueens() : 
+        board.getBlackRooks() | board.getBlackQueens();
+
+    while (enemyRooksQueens) {
+        int enemySquare = __builtin_ctzll(enemyRooksQueens);
+        enemyRooksQueens &= enemyRooksQueens - 1;
+
+        int enemyRow = enemySquare / 8;
+        int enemyCol = enemySquare % 8;
+
+        // only consider straight lines
+        if (!((enemyCol - kingCol == 0) || (enemyRow - kingRow == 0))) continue;
+
+        // ray from king to enemy piece
+        U64 ray = tables.rays[kingSquare][enemySquare];
+        if (!ray) continue;
+
+        // exclude king square and enemysquare to get all squares in between
+        U64 interior = ray & ~((1ULL << kingSquare) | (1ULL << enemySquare));   
+        U64 occupiedInterior = interior & occupied;
+
+        if (__builtin_popcountll(occupiedInterior) != 1) continue; // No Pin!
+
+        if (occupiedInterior & friendlyPieces) {
+            pinnedPieces |= (occupiedInterior & friendlyPieces);
+        }
+    }
+
+    cachedPinnedPieces = pinnedPieces;
+    return pinnedPieces;
+}
+
+U64 Game::getPinnedMask(int square, U8 colour){
+    
+    // U64 pinnedPieces = getPinnedPieces(colour);
+    // if (!(pinnedPieces & (1ULL << square))) {
+    //     // if not pinned, can move anywhere
+    //     return 0xFFFFFFFFFFFFFFFFULL;
+    // }
+
+    if (!(currentPinnedPieces & (1ULL << square))) {
+        // if not pinned, can move anywhere
+        return 0xFFFFFFFFFFFFFFFFULL;
+    }
+
+
+    // check if already cached
+    if (cachedPinnedMasks[square] != 0ULL) return cachedPinnedMasks[square];
+
+    // get enemy colour
+    U8 enemyColour = (colour == nWhite) ? nBlack : nWhite;
+
+    // get king square
+    U64 kingBB = (colour == nWhite) ? board.getWhiteKing() : board.getBlackKing();
+    if (!kingBB) return 0xFFFFFFFFFFFFFFFFULL; // should always be a king on the board
+    int kingSquare = __builtin_ctzll(kingBB);
+
+    U64 pinMask = 0ULL;
+
+    // check enemy bishops and queens
+    U64 enemyBishopsQueens = (enemyColour == nWhite) ?
+        (board.getWhiteBishops() | board.getWhiteQueens()) :
+        (board.getBlackBishops() | board.getBlackQueens());
+    
+    while (enemyBishopsQueens) {
+        int enemySquare = __builtin_ctzll(enemyBishopsQueens);
+        enemyBishopsQueens &= enemyBishopsQueens - 1;
+        
+        // use precomputed ray
+        U64 ray = tables.rays[kingSquare][enemySquare];
+
+        // if pinned square is on this ray
+        if (ray & (1ULL << square)) {
+            pinMask = ray;
+            break;
+        }
+    }
+
+    if (!pinMask) {
+        U64 enemyRooksQueens = (enemyColour == nWhite) ?
+            (board.getWhiteRooks() | board.getWhiteQueens()) :
+            (board.getBlackRooks() | board.getBlackQueens());
+        
+        while (enemyRooksQueens) {
+            int enemySquare = __builtin_ctzll(enemyRooksQueens);
+            enemyRooksQueens &= enemyRooksQueens - 1;
+
+            // use precomputed ray
+            U64 ray = tables.rays[kingSquare][enemySquare];
+
+            // if pinned square is on this ray
+            if (ray & (1ULL << square)) {
+                pinMask = ray;
+                break;
+            }
+        }
+    }
+
+    cachedPinnedMasks[square] = pinMask;
+    return pinMask;
+}
+
 
 
 void Game::displayBitboard(U64 bitboard, int square, char symbol) const {   

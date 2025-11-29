@@ -7,10 +7,15 @@
 
 class MoveTables {
 public:
+
+    // precomputed moves for king, knight, pawns
     U64 kingBB[64];
     U64 knightBB[64];
     U64 pawnMovesBB[2][64];
     U64 pawnMovesCapturesBB[2][64];
+
+    // precomputed rays for rook and bishop moves between two squares (64 x 64)
+    U64 rays[64][64];
 
     U64 zobristTable[12][64];   // hash 12 piece types (6 for each color) and 64 squares
     U64 zobristSideToMove;      // Zobrist hash for side to move
@@ -36,7 +41,7 @@ private:
     void generatePawnMoves();
     void generateZobristTables();
 
-    // void generateSlidingPieceMoves();
+    void generateRays();
 
     void updateBitboard(U64 &bitboard, int row, int col, int move[2]);
     void updatePawnMoves(U64 &whitePawnMoves, U64 &blackPawnMoves, int row, int col);

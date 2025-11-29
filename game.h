@@ -144,12 +144,19 @@ private:
     HistoryNode* historyHead; // pointer to the head of the history linked list
     HistoryNode* historyTail; // pointer to the tail of the history linked list
 
+    U64 cachedPinnedPieces = 0ULL;
+    U64 cachedPinnedMasks[64] = {0ULL};
+
+    U64 currentPinnedPieces = 0ULL;
+
     void clearHistory();
     void pushBoardState(const BoardState& state);
     BoardState popBoardState();
 
     U64 getBishopAttacks(U64 occupancy, int square);
     U64 getRookAttacks(U64 occupancy, int square);
+    U64 getPinnedPieces(U8 colour);
+    U64 getPinnedMask(int square, U8 colour);
 
     void generateKingMovesForSquare(int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false); 
     void generatePawnMovesForSquare(int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false); 
