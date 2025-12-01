@@ -98,7 +98,6 @@ void MoveTables::generateRays() {
             bool sameFile = fromCol == toCol;
             bool sameDiagonal = abs(fromRow - toRow) == abs(fromCol - toCol);
 
-
             if (!sameRank && !sameFile && !sameDiagonal) {
                 rays[from][to] = 0ULL;
                 continue;

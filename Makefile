@@ -1,7 +1,7 @@
 CC := g++
 CXXFLAGS := -std=c++17 -O3 -Wall -Wextra -pedantic
 
-SRC := bitboard.cpp board.cpp game.cpp move.cpp movetables.cpp evaluation.cpp search.cpp transposition.cpp
+SRC := bitboard.cpp board.cpp game.cpp game_temp.cpp game_pp.cpp move.cpp movetables.cpp evaluation.cpp search.cpp transposition.cpp
 HEADERS := bitboard.h board.h game.h move.h movetables.h evaluation.h search.h transposition.h types.h
 
 ENGINE_SRC := engine.cpp $(SRC)

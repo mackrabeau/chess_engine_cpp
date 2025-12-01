@@ -70,7 +70,6 @@ void verifyStandard() {
     vector<Test> tests = {
         {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 4865609},
         {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 4, 4085603},
-
     };
     
     for (auto& test : tests) {
@@ -86,12 +85,48 @@ void verifyStandard() {
 int main() {   
     verifyStandard();
 
-    Game game("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -");
-
-    perftN(game, 4);
+    Game game("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+    // Game game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     
-    // perftTable("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-    // perftTable("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ");
-    // perftTable("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1");
+    perftN(game, 5);
+
+    U64 bitboard = game.getPinnedPieces(game.board.friendlyColour());
+    U64 mask = game.getPinnedMask(__builtin_ctzll(bitboard), game.board.friendlyColour());
+    
+    std::cout << "\n";    
+    for (int r = 7; r >= 0; r --){
+        for (int c = 0; c < 8; c ++){
+
+            int sq = r * 8 + c;
+
+            char piece;
+
+            if (bitboard >> sq & 1ULL){
+                piece = 'x';
+            } else {
+                piece = '.';
+            }
+            std::cout<< piece << " ";
+        }
+        std::cout<< "\n";
+    }
+
+    std::cout << "\n";    
+    for (int r = 7; r >= 0; r --){
+        for (int c = 0; c < 8; c ++){
+
+            int sq = r * 8 + c;
+
+            char piece;
+            
+            if (mask >> sq & 1ULL){
+                piece = 'x';
+            } else {
+                piece = '.';
+            }
+            std::cout<< piece << " ";
+        }
+        std::cout<< "\n";
+    }
     return 0;
 }

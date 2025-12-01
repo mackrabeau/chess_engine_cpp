@@ -94,7 +94,7 @@ public:
     bool hasAnyLegalMove();
 
     MovesStruct generateAllLegalMoves(bool isCaptureOnly = false); 
-    MovesStruct generatePseudoLegalMoves();
+    // MovesStruct generatePseudoLegalMoves();
 
     bool isLegal(const U8 from, const U8 to);
 
@@ -102,14 +102,11 @@ public:
     bool isInCheck(U8 colour); // check if the specified player's king is in check
     bool isSquareAttacked(int square, U8 enemyColour); // check if the specified square is attacked by the enemy pieces
 
-    void generateMoves(enumPiece pieceType, int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false);    // generates bitmap of all legal moves for that pieces
+    // void generateMoves(enumPiece pieceType, int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false);    // generates bitmap of all legal moves for that pieces
+    void generateLegalMovesForPiece(enumPiece pieceType, int square, MovesStruct& legalMoves, U64& friendlyPieces, U64& enemyAttacks, int kingSquare, bool inCheck, bool isCaptureOnly = false);    // generates bitmap of all legal moves for that pieces
 
-    void addMovesToStruct(MovesStruct& pseudoMoves, int square, U64 moves); // adds moves to the pseudoMoves struct, filtering out illegal moves
-    void addPawnMovesToStruct(MovesStruct& pseudoMoves, int square, U64 moves); // adds moves to the pseudoMoves struct, filtering out illegal moves
-  
     U64 attackedBB(U8 enemyColour); // checks if square is attacked by enemy pieces
 
-    void displayBitboard(U64 bitboard, int square, char symbol) const;
     int historySize; // to keep track of the number of moves in history
 
     GameState getGameState();
@@ -121,6 +118,7 @@ public:
     // int getTerminalValue(int depth);
     bool isDrawByRule();
     void invalidateGameState();
+
 
 private:
     const MoveTables& tables; // reference to move tables
@@ -149,6 +147,9 @@ private:
 
     U64 currentPinnedPieces = 0ULL;
 
+    // pieces currently putting the king in check
+    U64 checkers = 0ULL;
+
     void clearHistory();
     void pushBoardState(const BoardState& state);
     BoardState popBoardState();
@@ -158,14 +159,24 @@ private:
     U64 getPinnedPieces(U8 colour);
     U64 getPinnedMask(int square, U8 colour);
 
-    void generateKingMovesForSquare(int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false); 
-    void generatePawnMovesForSquare(int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false); 
-    void generateBishopMovesForSquare(int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false); 
-    void generateKnightMovesForSquare(int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false);
-    void generateRookMovesForSquare(int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false); 
-    void generateQueenMovesForSquare(int square, MovesStruct& pseudoMoves, bool isCaptureOnly = false);
+    void generateKingMovesForSquare(int square, MovesStruct& legalMoves, U64& friendlyPieces, U64& enemyAttacks, bool inCheck, bool isCaptureOnly = false); 
+    void generatePawnMovesForSquare(int square, MovesStruct& legalMoves, int kingSquare, bool inCheck, bool isCaptureOnly = false); 
+    void generateBishopMovesForSquare(int square, MovesStruct& legalMoves, U64& friendlyPieces, int kingSquare, bool inCheck, bool isCaptureOnly = false); 
+    void generateKnightMovesForSquare(int square, MovesStruct& legalMoves, U64& friendlyPieces, int kingSquare, bool inCheck, bool isCaptureOnly = false);
+    void generateRookMovesForSquare(int square, MovesStruct& legalMoves, U64& friendlyPieces, int kingSquare, bool inCheck, bool isCaptureOnly = false); 
+    void generateQueenMovesForSquare(int square, MovesStruct& legalMoves, U64& friendlyPieces, int kingSquare, bool inCheck, bool isCaptureOnly = false);
+    
+    // returns bitboard of all pieces putting king in check
+    U64 getCheckers(U8 colour, int kingSquare);
 
-    bool hasLegalMoveFromSquare(enumPiece pieceType, int square);
+    // adds moves to the pseudoMoves struct, 
+    void addMovesToStructInCheck(enumPiece pieceType, MovesStruct& moves, int kingSquare, int square, U64& movesBB); // filters out illegal moves
+    void addMovesToStructFast(enumPiece pieceType, MovesStruct& legalMoves, int square, U64& movesBB);
+
+    void addPawnMovesToStructFast(MovesStruct& legalMoves, int square, U64& movesBB); 
+    
+    bool hasLegalMoveFromSquare(enumPiece pieceType, U64& friendlyPieces, U64& enemyAttacks, int square);
+
 };
 
 #endif // GAME_H

@@ -109,17 +109,7 @@ public:
                 if (from == 63) gameInfo &= ~BK_CASTLE; // h8 rook
             }
         }
-
-        // update castling zorbist hash
-        // int newCastlingIdx = 0;
-        // if (gameInfo & WK_CASTLE) newCastlingIdx |= 1;
-        // if (gameInfo & WQ_CASTLE) newCastlingIdx |= 2;
-        // if (gameInfo & BK_CASTLE) newCastlingIdx |= 4;
-        // if (gameInfo & BQ_CASTLE) newCastlingIdx |= 8;
-        // hash ^= MoveTables::instance().zobristCastling[newCastlingIdx];
     }
-
-    // void updateGameInfo(moveType moveType, enumPiece piece);
 
     inline U64 getAllPieces() const {return pieceBB[nWhite] | pieceBB[nBlack];};
     inline U64 getWhitePieces() const {return pieceBB[nWhite];};

@@ -109,14 +109,11 @@ public:
         return static_cast<enumPiece>((move & CAPTURED_PIECE_MASK) >> CAPTURED_PIECE_SHIFT);
     }
 
-    // inline void setPrevFrom(int from) { move = (move & PREV_FROM_MASK) | (from << PREV_FROM_SHIFT); } // set from square
-    // inline void setPrevTo(int to) { move = (move & PREV_TO_MASK) | (to << PREV_TO_SHIFT); }
-    // inline void setPrevFlags(int flags) { move = (move & PREV_FLAGS_MASK) | (flags << PREV_FLAGS_SHIFT); } // set flags
-
     inline bool isQuiet() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) == QUIET_MOVES; } // quiet move
     inline bool isDoublePawnPush() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) == DOUBLE_PAWN_PUSH; }
     inline bool isKingCastle() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) == KING_CASTLE; }
     inline bool isQueenCastle() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) == QUEEN_CASTLE; }
+    inline bool isCastle() const {return isQueenCastle() || isKingCastle(); }
     inline bool isEPCapture() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) == EP_CAPTURE; }
     inline bool isPromotion() const { return ((move & FLAGS_MASK) >> FLAGS_SHIFT) >= KNIGHT_PROMO && ((move & FLAGS_MASK) >> FLAGS_SHIFT) <= QUEEN_PROMO; } // knight, bishop, rook, queen promotion
 
