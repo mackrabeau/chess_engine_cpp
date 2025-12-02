@@ -1,16 +1,15 @@
 #include "move.h"
 
-
-std::string Move::toString() const {
+std::string moveToString(Move m) {
     std::string moveStr;
-    moveStr += 'a' + (getFrom() % 8); // file
-    moveStr += '1' + (getFrom() / 8); // rank
-    moveStr += 'a' + (getTo() % 8); // file
-    moveStr += '1' + (getTo() / 8); // rank
+    moveStr += 'a' + (getFrom(m) % 8); // file
+    moveStr += '1' + (getFrom(m) / 8); // rank
+    moveStr += 'a' + (getTo(m) % 8); // file
+    moveStr += '1' + (getTo(m) / 8); // rank
 
-    if (isPromotion() || isPromoCapture()) {
+    if (isPromotion(m) || isPromoCapture(m)) {
         char promoChar;
-        switch (getPromotionPiece()) {
+        switch (getPromotionPiece(m)) {
             case nQueens:  promoChar = 'q'; break;
             case nKnights: promoChar = 'n'; break;
             case nBishops: promoChar = 'b'; break;

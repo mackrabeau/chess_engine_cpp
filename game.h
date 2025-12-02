@@ -80,7 +80,7 @@ public:
         invalidateGameState();
     }
 
-    void pushMove(const Move& move);
+    void pushMove(Move move);
     void popMove();
 
     void enableFastMode();

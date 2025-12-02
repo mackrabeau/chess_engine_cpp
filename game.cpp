@@ -5,7 +5,7 @@ using namespace std;
 
 void Game::enableFastMode() {
     useStackHistory = true;
-    searchHistory[0].move = Move();                // empty/dummy move
+    searchHistory[0].move = MOVE_NONE;                // empty/dummy move
     searchHistory[0].gameInfo = board.gameInfo;
     searchHistory[0].hash = board.getHash();
     searchHistory[0].pieceMoved = nEmpty;          // dummy piece for empty move
@@ -49,19 +49,6 @@ bool Game::hasLegalMoveFromSquare(enumPiece pieceType, U64& friendlyPieces, U64&
     generateLegalMovesForPiece(pieceType, square, legalMoves, friendlyPieces, enemyAttacks, kingSquare, true); // only called while in check
 
     return (legalMoves.count != 0);
-
-    // for (int i = 0; i < moves.count; i++) {
-    //     Move move = moves.moveList[i];
-        
-    //     pushMove(move);
-    //     bool legal = !isInCheck(board.enemyColour());
-    //     popMove();
-        
-    //     if (legal) {
-    //         return true;  // Found at least one legal move
-    //     }
-    // }
-    // return false;
 }
 
 GameState Game::getGameState() {
@@ -245,7 +232,7 @@ bool Game::isLegal(const U8 from, const U8 to) {
     // Check if 'to' square is in the generated pseudo-legal moves
     for (int i = 0; i < legalMoves.count; i++) {
         Move move = legalMoves.moveList[i];
-        if (move.getTo() == to) return true;
+        if (getTo(move) == to) return true;
     }
 
     return false;
@@ -745,7 +732,7 @@ void Game::addMovesToStructFast(enumPiece pieceType, MovesStruct& legalMoves, in
     while(movesBB) {
         int to = __builtin_ctzll(movesBB);
         movesBB &= movesBB - 1;
-        Move move(square, to, epSquare, pieceType, board.getPieceType(to));
+        Move move = makeMove(square, to, epSquare, pieceType, board.getPieceType(to));
         legalMoves.addMove(move);
     }
 }
@@ -768,16 +755,16 @@ void Game::addPawnMovesToStructFast(MovesStruct& legalMoves, int square, U64& mo
 
         // promotion check
         if (promotionSquares & (1ULL << to)) {
-            Move move1(square, to, epSquare, pieceType, capturedPiece, nKnights);
-            Move move2(square, to, epSquare, pieceType, capturedPiece, nBishops);
-            Move move3(square, to, epSquare, pieceType, capturedPiece, nRooks);
-            Move move4(square, to, epSquare, pieceType, capturedPiece, nQueens);
-            legalMoves.addMove(move1);
-            legalMoves.addMove(move2);
-            legalMoves.addMove(move3);   
-            legalMoves.addMove(move4);
+            Move m1 = makeMove(square, to, epSquare, pieceType, capturedPiece, nKnights);
+            Move m2 = makeMove(square, to, epSquare, pieceType, capturedPiece, nBishops);
+            Move m3 = makeMove(square, to, epSquare, pieceType, capturedPiece, nRooks);
+            Move m4 = makeMove(square, to, epSquare, pieceType, capturedPiece, nQueens);
+            legalMoves.addMove(m1);
+            legalMoves.addMove(m2);
+            legalMoves.addMove(m3);   
+            legalMoves.addMove(m4);
         } else {
-            Move move(square, to, epSquare, pieceType, capturedPiece);
+            Move move = makeMove(square, to, epSquare, pieceType, capturedPiece);
             legalMoves.addMove(move);
         }
     }
@@ -897,11 +884,11 @@ U64 Game::getCheckers(U8 colour, int kingSquare) {
 }
 
 
-void Game::pushMove(const Move& move) {
+void Game::pushMove(Move move) {
 
     // move data - compute piece type before we modify the board
-    const U8 from = move.getFrom(); // extract from square, mask to 6 bits
-    const U8 to = move.getTo(); // extract to square, mask to 6 bits
+    const U8 from = getFrom(move); // extract from square, mask to 6 bits
+    const U8 to = getTo(move); // extract to square, mask to 6 bits
     const enumPiece piece = board.getPieceType(from);
 
     // invalidate cached pinned pieces and masks
@@ -926,9 +913,9 @@ void Game::pushMove(const Move& move) {
         pushBoardState(currentState);
     }
     const enumPiece colour = board.getColourType(from);
-    const enumPiece capturedPiece = move.getCapturedPiece();
+    const enumPiece capturedPiece = getCapturedPiece(move);;
     const enumPiece capturedColour = colour == nWhite ? nBlack : nWhite;
-    const moveType moveType = move.getMoveType();
+    const moveType moveType = getMoveType(move);
 
     // update zorbist hash for castling rights 
     U16 oldGameInfo = board.gameInfo;
@@ -938,8 +925,8 @@ void Game::pushMove(const Move& move) {
     board.removePiece(from, piece, colour); // remove the piece from the "from" square
 
     // capture logic
-    if (move.isCapture()) {
-        if (move.isEPCapture()) {
+    if (isCapture(move)) {
+        if (isEPCapture(move)) {
             int capturePawnSquare = (colour == nWhite) ? to - 8 : to + 8; // calculate the square of the captured pawn
             board.removePiece(capturePawnSquare, nPawns, capturedColour); // remove the captured pawn
         } else {
@@ -956,9 +943,9 @@ void Game::pushMove(const Move& move) {
     board.clearEpSquare(); // clear the en passant square before applying the move
 
     enumPiece finalPiece = piece; // default to the moved piece
-    if (move.isPromoCapture() || move.isPromotion()) {
+    if (isPromoCapture(move) || isPromotion(move)) {
         // handle promotion
-        finalPiece = move.getPromotionPiece(); // default to queen promotion
+        finalPiece = getPromotionPiece(move); // default to queen promotion
         board.setPiece(to, finalPiece, colour); // set the promoted piece
     } else {
         // for all other moves, just set the piece to the "to" square
@@ -975,7 +962,7 @@ void Game::pushMove(const Move& move) {
     board.updateCastlePieces(moveType, colour); // update castling rights if necessary
 
     // update halfmove clock
-    if (move.isCapture() || piece == nPawns){
+    if (isCapture(move) || piece == nPawns){
        board.gameInfo &= ~MOVE_MASK; // reset halfmove clock
     } else {
         board.gameInfo = (board.gameInfo & ~MOVE_MASK) | (((((board.gameInfo & MOVE_MASK) >> 6) + 1) << 6) & MOVE_MASK);
@@ -994,8 +981,8 @@ void Game::pushMove(const Move& move) {
     board.hash ^= tables.zobristTable[board.getPieceIndex(finalPiece, colour)][to];       // Add new piece
 
     // captures
-    if (move.isCapture()) {
-        if (move.isEPCapture()) {
+    if (isCapture(move)) {
+        if (isEPCapture(move)) {
             int capturePawnSquare = (colour == nWhite) ? to - 8 : to + 8;
             board.hash ^= tables.zobristTable[board.getPieceIndex(nPawns, capturedColour)][capturePawnSquare];
         } else {
@@ -1073,19 +1060,19 @@ void Game::popMove() {
     Move move = prevState.move;
     enumPiece pieceMoved = prevState.pieceMoved; // Use stored piece type (original piece)
 
-    if (move.getMove() == 0) return; // safety checks
+    if (move == MOVE_NONE) return; // safety checks
 
-    int from = move.getFrom();
-    int to = move.getTo();
-    int flags = move.getFlags();
-    enumPiece capturedPiece = move.getCapturedPiece();
+    int from = getFrom(move);
+    int to = getTo(move);
+    int flags = getFlags(move);
+    enumPiece capturedPiece = getCapturedPiece(move);;
 
     // Determine what piece is currently on the board at 'to' to remove it
     // For normal moves, it's the same as pieceMoved.
     // For promotions, it's the promoted piece (e.g., Queen), not the original (Pawn).
     enumPiece pieceToRemove = pieceMoved;
-    if (move.isPromotion() || move.isPromoCapture()) {
-        pieceToRemove = move.getPromotionPiece();
+    if (isPromotion(move) || isPromoCapture(move)) {
+        pieceToRemove = getPromotionPiece(move);
     }
 
     enumPiece enemyColour = board.enemyColour();

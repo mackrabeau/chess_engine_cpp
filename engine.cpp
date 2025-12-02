@@ -113,7 +113,7 @@ bool applyMoveString(Game& game, const std::string& moveStr) {
     MovesStruct legal = game.generateAllLegalMoves();
     for (int i = 0; i < legal.getNumMoves(); ++i) {
         Move move = legal.getMove(i);
-        if (move.toString() == moveStr) {
+        if (moveToString(move) == moveStr) {
             game.pushMove(move);
             return true;
         }
@@ -240,7 +240,7 @@ std::vector<Move> resolveSearchMoves(Game& game, const std::vector<std::string>&
         bool found = false;
         for (int i = 0; i < legal.getNumMoves(); ++i) {
             Move move = legal.getMove(i);
-            if (move.toString() == moveStr) {
+            if (moveToString(move) == moveStr) {
                 resolved.push_back(move);
                 found = true;
                 break;
@@ -277,7 +277,7 @@ SearchResult runIterativeSearch(Game& game, const GoSettings& settings, const st
 
     for (int depth = 1; depth <= targetDepth; ++depth) {
         Move bestAtDepth = searchAtDepth(game, depth, filterPtr);
-        if (bestAtDepth.getMove()) {
+        if (bestAtDepth != MOVE_NONE) {
             result.bestMove = bestAtDepth;
             result.depthReached = depth;
         }
@@ -305,7 +305,7 @@ void startSearch(Game& game, const GoSettings& settings, const std::vector<Move>
 
     g_searchThread = std::thread([&game, settingsCopy, filterCopy]() mutable {
         SearchResult result = runIterativeSearch(game, settingsCopy, filterCopy);
-        std::string bestMove = result.bestMove.getMove() ? result.bestMove.toString() : "0000";
+        std::string bestMove = (result.bestMove != MOVE_NONE) ? moveToString(result.bestMove) : "0000";
         std::cout << "bestmove " << bestMove << std::endl;
         std::cout.flush();
         g_searchRunning.store(false, std::memory_order_release);

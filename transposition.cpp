@@ -37,15 +37,13 @@ void TranspositionTable::clear() {
     }
 }
 
-bool TranspositionTable::probe(U64 key, int alpha, int beta, int depth, int& score, Move& bestMove) {
+bool TranspositionTable::probe(U64 key, int alpha, int beta, int depth, int& score) {
     size_t index = key & sizeMask;
     TTEntry& entry = entries[index];
 
     if (entry.key != key) {
         return false; // not found
     }
-
-    bestMove = entry.bestMove;
 
     if (entry.depth < depth) {
         return false; // not deep enough
@@ -76,7 +74,7 @@ bool TranspositionTable::probe(U64 key, int alpha, int beta, int depth, int& sco
     return false;
 }
 
-void TranspositionTable::store(U64 key, int score, int depth, TTFlag flag, const Move& bestMove) {
+void TranspositionTable::store(U64 key, int score, int depth, TTFlag flag, Move bestMove) {
     if (depth < 0) depth = 0; // Prevent negative depths
 
     size_t index = key & sizeMask;
@@ -114,6 +112,16 @@ void TranspositionTable::store(U64 key, int score, int depth, TTFlag flag, const
         entry.flag = flag;
         entry.bestMove = bestMove;
     }
+}
+
+Move TranspositionTable::getBestMove(U64 key) {
+    size_t index = key & sizeMask;
+    TTEntry& entry = entries[index];
+    
+    if (entry.key == key) {
+        return entry.bestMove;
+    }
+    return MOVE_NONE;
 }
 
 double TranspositionTable::getUsage() const {

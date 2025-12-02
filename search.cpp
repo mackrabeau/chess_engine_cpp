@@ -123,8 +123,8 @@ void resetSearchStats() {
     g_timeoutOccurred = false;
 
     for (int depth = 0; depth < MAX_SEARCH_DEPTH; ++depth) {
-        killerMoves[depth][0] = Move();
-        killerMoves[depth][1] = Move();
+        killerMoves[depth][0] =MOVE_NONE;
+        killerMoves[depth][1] =MOVE_NONE;
     }
 }
 
@@ -177,14 +177,14 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
     }
 
     U64 hash = game.board.getHash();
-    Move ttBestMove;
+    Move ttBestMove = MOVE_NONE;
 
     // check transposition table
     if (depth >= 0){
         int ttScore;
         g_ttProbes++;
 
-        if (g_transpositionTable.probe(hash, alpha, beta, depth, ttScore, ttBestMove)) {
+        if (g_transpositionTable.probe(hash, alpha, beta, depth, ttScore)) {
             g_ttHits++;
             int ret = adjustMateScore(ttScore, getPlyFromRoot());
             recordExit(game, depth, ret);
@@ -192,11 +192,13 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
         }
     }
 
+    ttBestMove = g_transpositionTable.getBestMove(hash);
+
     if (game.isPositionTerminal()) {
         int score = getTerminalValue(game);
         if (depth > 0) {
             int adjustedScore = adjustMateScore(score, getPlyFromRoot());
-            g_transpositionTable.store(hash, adjustedScore, depth, TT_EXACT, Move());
+            g_transpositionTable.store(hash, adjustedScore, depth, TT_EXACT, MOVE_NONE);
         }
         recordExit(game, depth, score);
         return score;
@@ -223,7 +225,7 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 
         if (depth > 0) {
             int adjustedScore = adjustMateScore(score, getPlyFromRoot());
-            g_transpositionTable.store(hash, adjustedScore, depth, TT_EXACT, Move());
+            g_transpositionTable.store(hash, adjustedScore, depth, TT_EXACT,MOVE_NONE);
         }
         recordExit(game, depth, score);
         return score;
@@ -236,13 +238,13 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
         Move move = legalMoves.getMove(i);
         int moveScore = 0;
 
-        if (ttBestMove.getMove() == move.getMove()){
+        if (ttBestMove == move){
             moveScore = 10000; // highest priority
             
-        } else if (move.getCapturedPiece() != nEmpty) {
+        } else if (getCapturedPiece(move) != nEmpty) {
             // MVV-LVA scoring for captures
-            int victim = pieceScore( move.getCapturedPiece() );
-            int attacker = pieceScore( game.board.getPieceType(move.getFrom()) );
+            int victim = pieceScore( getCapturedPiece(move) );
+            int attacker = pieceScore( game.board.getPieceType(getFrom(move)) );
 
             // MVV-LVA scoring for remaining captures  
             int victimScore = victim / 100;
@@ -252,15 +254,15 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
         } else if (isKillerMove(move, depth)) {
             moveScore = 900;
 
-        } else if (move.isPromotion() || move.isPromoCapture()) {
+        } else if (isPromotion(move) || isPromoCapture(move)) {
             moveScore = 800; // promotion bonus
 
-        } else if (move.isKingCastle() || move.isQueenCastle()) {
+        } else if (isKingCastle(move) || isQueenCastle(move)) {
             moveScore = 700; // castling bonus
 
         } else {
             // center control
-            U8 to = move.getTo();
+            U8 to = getTo(move);
             if (to == 28 || to == 29 || to == 35 || to == 36) { // e4, e5, d4, d5
                 moveScore = 100;
             }
@@ -292,7 +294,7 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
         alpha = std::max(alpha, score);
 
         if (alpha >= beta) {
-            if (move.getCapturedPiece() == nEmpty) {
+            if (getCapturedPiece(move) == nEmpty) {
                 updateKillerMove(move, depth); // Update killer move
             }
             break; // Prune remaining moves
@@ -320,13 +322,13 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
 
     MovesStruct legalMoves = game.generateAllLegalMoves();
-    if (legalMoves.getNumMoves() == 0) return Move();
+    if (legalMoves.getNumMoves() == 0) return MOVE_NONE;
 
     std::unordered_set<U32> filterSet;
     if (rootFilter && !rootFilter->empty()) {
         filterSet.reserve(rootFilter->size());
         for (const auto& move : *rootFilter) {
-            filterSet.insert(move.getMove());
+            filterSet.insert(move);
         }
     }
     
@@ -341,7 +343,7 @@ Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
         if (isTimeUp()) break;
         
         Move move = legalMoves.getMove(i);
-        if (!filterSet.empty() && filterSet.find(move.getMove()) == filterSet.end()) {
+        if (!filterSet.empty() && filterSet.find(move) == filterSet.end()) {
             continue;
         }
         
@@ -355,11 +357,11 @@ Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
             foundMove = true;
         }
     }
-    return foundMove ? bestMove : Move();
+    return foundMove ? bestMove :MOVE_NONE;
 }
 
 void updateKillerMove(Move move, int depth) {
-    if (killerMoves[depth][0].getMove() != move.getMove()) {
+    if (killerMoves[depth][0] != move) {
         killerMoves[depth][1] = killerMoves[depth][0]; 
         killerMoves[depth][0] = move;
     }
@@ -367,7 +369,7 @@ void updateKillerMove(Move move, int depth) {
 
 bool isKillerMove(Move move, int depth) {
     if (depth < 0 || depth >= MAX_SEARCH_DEPTH) return false;
-    return (killerMoves[depth][0].getMove() == move.getMove() || killerMoves[depth][1].getMove() == move.getMove());
+    return (killerMoves[depth][0] == move || killerMoves[depth][1] == move);
 }
 
 int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
@@ -375,12 +377,8 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
     g_nodeCount++;
     if (isTimeUp()) return evalForSide(game);
 
-    // if (qDepth > 8) {
-    //     return evalForSide(game);
-    // }
-
     U64 hash = game.board.getHash();
-    Move ttBestMove;
+    Move ttBestMove = MOVE_NONE;
 
     // Quiescence should not write negative depths into the TT.
     // Treat quiescence entries as depth 0 so they never appear deeper than main-search entries.
@@ -388,10 +386,12 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
     int ttScore;
 
     g_ttProbes++;
-    if (g_transpositionTable.probe(hash, alpha, beta, ttDepth, ttScore, ttBestMove)) {
+    if (g_transpositionTable.probe(hash, alpha, beta, ttDepth, ttScore)) {
         g_ttHits++;
         return restoreMateScore(ttScore, getPlyFromRoot());
     }
+
+    ttBestMove = g_transpositionTable.getBestMove(hash);
 
     int originalAlpha = alpha;
     int standPat = evalForSide(game);
@@ -402,7 +402,7 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
     }
 
     if (standPat >= beta) {
-        g_transpositionTable.store(hash, standPat, ttDepth, TT_LOWER, Move());
+        g_transpositionTable.store(hash, standPat, ttDepth, TT_LOWER,MOVE_NONE);
         return standPat;
     }
 
@@ -411,7 +411,7 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
     MovesStruct captureMoves = game.generateAllLegalMoves(true); // Generate only capture moves);
 
     if (captureMoves.getNumMoves() == 0) {
-        g_transpositionTable.store(hash, standPat, ttDepth, TT_EXACT, Move());
+        g_transpositionTable.store(hash, standPat, ttDepth, TT_EXACT,MOVE_NONE);
         return standPat;
     }
 
@@ -422,19 +422,19 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
         Move move = captureMoves.getMove(i);
         int moveScore = 0;
 
-        if (ttBestMove.getMove() == move.getMove()) {
+        if (ttBestMove == move) {
             moveScore = 10000; // highest priority
         } else {
             // MVV-LVA scoring for captures
-            int victim = pieceScore( move.getCapturedPiece() ) / 100;
-            int attacker = pieceScore( game.board.getPieceType(move.getFrom()) ) / 100;
+            int victim = pieceScore( getCapturedPiece(move) ) / 100;
+            int attacker = pieceScore( game.board.getPieceType(getFrom(move)) ) / 100;
             moveScore = 1000 + (victim * 10) - attacker; // simple MVV-LVA heuristic
         }
         scoredCaptures.push_back({move, moveScore});
     }   
 
     if (scoredCaptures.empty()) {
-        g_transpositionTable.store(hash, standPat, 0, TT_EXACT, Move());
+        g_transpositionTable.store(hash, standPat, 0, TT_EXACT,MOVE_NONE);
         return standPat;
     }
 
@@ -451,8 +451,8 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
         if (isTimeUp()) break;
 
         // SEE(Static Exchange Evaluation) pruning
-        // int victim = pieceScore(move.getCapturedPiece()) / 100;
-        // int attacker = pieceScore(game.board.getPieceType(move.getFrom())) / 100;
+        // int victim = pieceScore(getCapturedPiece(move)) / 100;
+        // int attacker = pieceScore(game.board.getPieceType(getFrom(move))) / 100;
         // int see = (victim * 100) - (attacker * 100); // Simple SEE approximation
 
         // // Skip obviously bad captures (losing more than we gain)
@@ -465,7 +465,7 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
         game.popMove();
 
         if (score >= beta) {
-            g_transpositionTable.store(hash, score, ttDepth, TT_LOWER, Move());
+            g_transpositionTable.store(hash, score, ttDepth, TT_LOWER,MOVE_NONE);
             return score; // beta cutoff
         }
 
@@ -492,7 +492,7 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
     }
 
     int adjustedScore = adjustMateScore(bestScore, getPlyFromRoot());
-    Move storeMove = foundMove ? bestMove : Move();
+    Move storeMove = foundMove ? bestMove :MOVE_NONE;
     g_transpositionTable.store(hash, adjustedScore, ttDepth, flag, storeMove);
 
     return bestScore;

@@ -44,17 +44,17 @@ void test_en_passant_legality() {
 
     bool foundEnPassant = false;
     for (int i = 0; i < legalMoves.getNumMoves(); ++i)
-        if (legalMoves.getMove(i).getMove() & FLAG_EP_CAPTURE) foundEnPassant = true;
+        if (isEPCapture(legalMoves.getMove(i))) foundEnPassant = true;
     assert(foundEnPassant && "En passant should be legal");
 }
 
 void test_en_passant_illegality() {
     // En passant is not legal (would leave king in check)
     Game game("8/8/8/3pP3/8/8/8/R3K2R w KQ - 0 1");
-    MovesStruct  legalMoves = game.generateAllLegalMoves();
+    MovesStruct legalMoves = game.generateAllLegalMoves();
 
     for (int i = 0; i < legalMoves.getNumMoves(); ++i){
-        assert(!(legalMoves.getMove(i).getFlags() == FLAG_EP_CAPTURE) && "En passant should NOT be legal");
+        assert(!isEPCapture(legalMoves.getMove(i)) && "En passant should NOT be legal");
     }
 }
 
@@ -66,8 +66,8 @@ void test_castling_rights() {
     bool foundKingCastle = false, foundQueenCastle = false;
     for (int i = 0; i < legalMoves.getNumMoves(); ++i) {
         Move move = legalMoves.getMove(i);
-        if ((move.getFlags() & FLAG_KING_CASTLE) && !(move.getFlags() & FLAG_DOUBLE_PAWN_PUSH)) foundKingCastle = true;
-        if ((move.getFlags() & FLAG_KING_CASTLE) && (move.getFlags() & FLAG_DOUBLE_PAWN_PUSH)) foundQueenCastle = true;
+        if (isKingCastle(move) && !isDoublePawnPush(move)) foundKingCastle = true;
+        if (isQueenCastle(move)) foundQueenCastle = true;
     }
     assert(foundKingCastle && "King-side castling should be legal");
     assert(foundQueenCastle && "Queen-side castling should be legal");
@@ -80,7 +80,7 @@ void test_pawn_promotions() {
 
     bool foundPromotion = false;
     for (int i = 0; i < legalMoves.getNumMoves(); ++i)
-        if (legalMoves.getMove(i).getMove() & FLAG_PROMOTION) foundPromotion = true;
+        if (isPromotion(legalMoves.getMove(i)) || isPromoCapture(legalMoves.getMove(i))) foundPromotion = true;
     assert(foundPromotion && "Pawn promotion should be detected");
 }
 
@@ -91,7 +91,7 @@ void test_pinned_piece_cannot_move() {
 
     for (int i = 0; i < legalMoves.getNumMoves(); ++i) {
         Move move = legalMoves.getMove(i);
-        int from = move.getFrom();
+        int from = getFrom(move);
         if (from == 11) // d2
             assert(false && "Pinned bishop should not be able to move");
     }
@@ -104,8 +104,8 @@ void test_king_cannot_move_into_check() {
 
     for (int i = 0; i < legalMoves.getNumMoves(); ++i) {
         Move move = legalMoves.getMove(i);
-        int from = move.getFrom();
-        int to = move.getTo();
+        int from = getFrom(move);
+        int to = getTo(move);
         if (from == 36 && (to == 28)) // e5 to d4 or f4
             assert(false && "King should not be able to move into check");
     }

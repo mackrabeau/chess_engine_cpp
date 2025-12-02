@@ -37,16 +37,20 @@ public:
     void clear();
     void resize(size_t sizeInMB);
     
-    bool probe(U64 key, int alpha, int beta, int depth, int& score, Move& bestMove);
-    void store(U64 key, int score, int depth, TTFlag flag, const Move& bestMove);
+    bool probe(U64 key, int alpha, int beta, int depth, int& score);
+    void store(U64 key, int score, int depth, TTFlag flag, Move bestMove);
     
     // Statistics
     size_t getSize() const { return size; }
     double getUsage() const;
+
+    Move getBestMove(U64 key);
+
     
     // Disable copy constructor and assignment
     TranspositionTable(const TranspositionTable&) = delete;
     TranspositionTable& operator=(const TranspositionTable&) = delete;
+
 };
 
 // ✅ Global TT instance

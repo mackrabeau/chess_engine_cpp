@@ -43,7 +43,7 @@ void perftN(Game& game, int depth) {
         Move move = legalMoves.getMove(i);
 
         game.pushMove(move);
-        string moveStr = move.toString();
+        string moveStr = moveToString(move);
         long long nodes = perft(game, depth - 1);
         game.popMove();
 
@@ -88,45 +88,45 @@ int main() {
     Game game("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
     // Game game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     
-    perftN(game, 5);
+    perftN(game, 4);
 
-    U64 bitboard = game.getPinnedPieces(game.board.friendlyColour());
-    U64 mask = game.getPinnedMask(__builtin_ctzll(bitboard), game.board.friendlyColour());
+    // U64 bitboard = game.getPinnedPieces(game.board.friendlyColour());
+    // U64 mask = game.getPinnedMask(__builtin_ctzll(bitboard), game.board.friendlyColour());
     
-    std::cout << "\n";    
-    for (int r = 7; r >= 0; r --){
-        for (int c = 0; c < 8; c ++){
+    // std::cout << "\n";    
+    // for (int r = 7; r >= 0; r --){
+    //     for (int c = 0; c < 8; c ++){
 
-            int sq = r * 8 + c;
+    //         int sq = r * 8 + c;
 
-            char piece;
+    //         char piece;
 
-            if (bitboard >> sq & 1ULL){
-                piece = 'x';
-            } else {
-                piece = '.';
-            }
-            std::cout<< piece << " ";
-        }
-        std::cout<< "\n";
-    }
+    //         if (bitboard >> sq & 1ULL){
+    //             piece = 'x';
+    //         } else {
+    //             piece = '.';
+    //         }
+    //         std::cout<< piece << " ";
+    //     }
+    //     std::cout<< "\n";
+    // }
 
-    std::cout << "\n";    
-    for (int r = 7; r >= 0; r --){
-        for (int c = 0; c < 8; c ++){
+    // std::cout << "\n";    
+    // for (int r = 7; r >= 0; r --){
+    //     for (int c = 0; c < 8; c ++){
 
-            int sq = r * 8 + c;
+    //         int sq = r * 8 + c;
 
-            char piece;
+    //         char piece;
             
-            if (mask >> sq & 1ULL){
-                piece = 'x';
-            } else {
-                piece = '.';
-            }
-            std::cout<< piece << " ";
-        }
-        std::cout<< "\n";
-    }
+    //         if (mask >> sq & 1ULL){
+    //             piece = 'x';
+    //         } else {
+    //             piece = '.';
+    //         }
+    //         std::cout<< piece << " ";
+    //     }
+    //     std::cout<< "\n";
+    // }
     return 0;
 }
