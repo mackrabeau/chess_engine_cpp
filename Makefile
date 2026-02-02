@@ -46,4 +46,4 @@ testing/%.o: testing/%.cpp $(HEADERS) $(TESTING_HEADERS)
 	$(CC) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(ENGINE_OBJ) $(PERFT_OBJ) $(TEST_RUNNER_OBJ) $(TRAIN_NNUE_OBJ) $(RUN_RL_CYCLE_OBJ) engine perft test_runner train_nnue run_rl_cycle test_model.bin test_self_play_data.bin training_data.bin trained_model.bin rl_cycle_*.bin eval_*.sh
+	rm -f $(ENGINE_OBJ) $(PERFT_OBJ) $(TEST_RUNNER_OBJ) $(TRAIN_NNUE_OBJ) $(RUN_RL_CYCLE_OBJ) engine perft test_runner train_nnue run_rl_cycle eval_*.sh
