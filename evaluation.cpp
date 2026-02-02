@@ -1,13 +1,98 @@
 #include "evaluation.h"
+#include "nnue.h"
 #include <array>
 #include <cmath>
+#include <memory>
 
 namespace evaluation {
 
+// Global evaluation mode
+EvalMode g_evalMode = EvalMode::TRADITIONAL;
+
+// Global NNUE network instance
+nnue::NNUE* g_nnueNetwork = nullptr;
+
 const int INIT_TOTAL = Pwt * 16 + Nwt * 4 + Bwt * 4 + Rwt * 4 + Qwt * 2;
 
-int evaluateBoard(const Board& board) {
+void setEvalMode(EvalMode mode) {
+    g_evalMode = mode;
+}
 
+bool initializeNNUE(const std::string& modelPath) {
+    if (g_nnueNetwork != nullptr) {
+        cleanupNNUE();
+    }
+    
+    g_nnueNetwork = new nnue::NNUE();
+    
+    if (!modelPath.empty()) {
+        // Try to load model from file
+        if (!g_nnueNetwork->loadModel(modelPath)) {
+            // If loading fails, use random initialization
+            std::cerr << "Warning: Failed to load NNUE model from " << modelPath 
+                      << ", using random initialization" << std::endl;
+            g_nnueNetwork->initialize();
+            return false; // Indicate that loading failed
+        }
+        std::cout << "Loaded NNUE model from " << modelPath << std::endl;
+        return true;
+    } else {
+        // Initialize with random weights
+        g_nnueNetwork->initialize();
+        return true;
+    }
+}
+
+void cleanupNNUE() {
+    if (g_nnueNetwork != nullptr) {
+        delete g_nnueNetwork;
+        g_nnueNetwork = nullptr;
+    }
+}
+
+int evaluateBoardNNUE(const Board& board, nnue::Accumulator* accumulator) {
+    if (g_nnueNetwork == nullptr) {
+        // Fallback to traditional evaluation if NNUE not initialized
+        return evaluateBoard(board);
+    }
+    
+    // Use accumulator if provided (for incremental updates)
+    if (accumulator != nullptr) {
+        float nnueEval = g_nnueNetwork->evaluate(*accumulator);
+        // Convert float to int (centipawns)
+        // Network outputs in pawns, so multiply by 100 to get centipawns
+        return static_cast<int>(nnueEval * 100.0f);
+    } else {
+        // Evaluate directly from board (slower, but works)
+        float nnueEval = g_nnueNetwork->evaluate(board);
+        // Network outputs in pawns, so multiply by 100 to get centipawns
+        return static_cast<int>(nnueEval * 100.0f);
+    }
+}
+
+int evaluateBoard(const Board& board) {
+    // Check evaluation mode
+    if (g_evalMode == EvalMode::NNUE || g_evalMode == EvalMode::HYBRID) {
+        if (g_nnueNetwork != nullptr) {
+            int nnueScore = evaluateBoardNNUE(board);
+            
+            if (g_evalMode == EvalMode::HYBRID) {
+                // Combine with traditional evaluation (weighted average)
+                int traditionalScore = evaluateBoardTraditional(board);
+                // 70% NNUE, 30% traditional (adjustable)
+                return static_cast<int>(0.7f * nnueScore + 0.3f * traditionalScore);
+            } else {
+                return nnueScore;
+            }
+        }
+        // Fall through to traditional if NNUE not available
+    }
+    
+    // Traditional evaluation
+    return evaluateBoardTraditional(board);
+}
+
+int evaluateBoardTraditional(const Board& board) {
     U64 pieces = board.getAllPieces();
     
     int score = 0;

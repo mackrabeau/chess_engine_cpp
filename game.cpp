@@ -1,5 +1,9 @@
 #include "game.h"
 #include "bitboard.h"
+#include "nnue.h"
+#include "evaluation.h"
+
+using namespace evaluation;
 
 using namespace std;
 
@@ -885,6 +889,8 @@ U64 Game::getCheckers(U8 colour, int kingSquare) {
 
 
 void Game::pushMove(Move move) {
+    // Save board state before move (for NNUE accumulator update)
+    Board boardBefore = board;
 
     // move data - compute piece type before we modify the board
     const U8 from = getFrom(move); // extract from square, mask to 6 bits
@@ -1024,6 +1030,11 @@ void Game::pushMove(Move move) {
 
     invalidateGameState();
     
+    // Update NNUE accumulator if it exists
+    if (nnueAccumulator != nullptr && g_nnueNetwork != nullptr) {
+        nnueAccumulator->update(boardBefore, board, move, g_nnueNetwork);
+    }
+    
     // board.calculateHash(); // recalculate the hash for the board state
 }
 
@@ -1140,8 +1151,27 @@ void Game::popMove() {
     }  
 
     invalidateGameState();
+    
+    // Update NNUE accumulator if it exists (refresh after unmake)
+    if (nnueAccumulator != nullptr && g_nnueNetwork != nullptr) {
+        nnueAccumulator->refresh(board, g_nnueNetwork);
+    }
+    
     // board.calculateHash(); // recalculate the hash for the board state
 
+}
+
+void Game::initializeNNUEAccumulator() {
+    if (g_nnueNetwork == nullptr) {
+        nnueAccumulator.reset();
+        return;
+    }
+    
+    if (nnueAccumulator == nullptr) {
+        nnueAccumulator = std::make_unique<nnue::Accumulator>();
+    }
+    
+    nnueAccumulator->refresh(board, g_nnueNetwork);
 }
 
 void Game::pushBoardState(const BoardState& state) {

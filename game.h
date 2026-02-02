@@ -5,12 +5,14 @@
 #include "types.h"
 #include "movetables.h"
 #include "move.h"
+#include "nnue.h"
 
 #include <iostream>
 #include <cstdint>
 #include <string>
 #include <vector>
 #include <bitset>
+#include <memory>
 
 typedef uint64_t U64;
 typedef uint16_t U16;
@@ -47,7 +49,10 @@ class Game {
 public:
     Board board;
     GameState state;
-    bool inMoveGeneration = false; 
+    bool inMoveGeneration = false;
+    
+    // NNUE accumulator for incremental evaluation (optional)
+    std::unique_ptr<nnue::Accumulator> nnueAccumulator; 
     
     Game(const std::string& initialFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") 
         : board(initialFEN),
@@ -72,16 +77,30 @@ public:
     void reset(){
         board = Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // Reset to initial state
         clearHistory();
+        // Reset accumulator if it exists
+        if (nnueAccumulator != nullptr) {
+            initializeNNUEAccumulator();
+        }
     }
 
     void setPosition(const std::string& fen) {
         board = Board(fen);
         clearHistory();
         invalidateGameState();
+        // Refresh accumulator if it exists
+        if (nnueAccumulator != nullptr) {
+            initializeNNUEAccumulator();
+        }
     }
 
     void pushMove(Move move);
     void popMove();
+    
+    // Initialize NNUE accumulator (call before search if using NNUE)
+    void initializeNNUEAccumulator();
+    
+    // Get NNUE accumulator (returns nullptr if not initialized)
+    nnue::Accumulator* getNNUEAccumulator() { return nnueAccumulator.get(); }
 
     void enableFastMode();
     void disableFastMode();

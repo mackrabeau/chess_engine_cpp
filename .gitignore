@@ -2,5 +2,6 @@
 *.o
 engine
 perft
-plan.md
 test_results
+plans
+test_nnue_files

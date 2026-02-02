@@ -3,6 +3,7 @@
 
 #include "evaluation.h"
 #include "transposition.h"
+#include "nnue.h"
 #include <unordered_map>
 #include <vector>
 #include <atomic>
@@ -54,6 +55,16 @@ void updateKillerMove(Move move, int depth);
 bool isKillerMove(Move move, int depth);
 
 static inline int evalForSide(const Game& game) {
+    using namespace evaluation;
+    // Use accumulator if available and NNUE is enabled
+    if (g_evalMode != EvalMode::TRADITIONAL && game.nnueAccumulator != nullptr && g_nnueNetwork != nullptr) {
+        float nnueEval = g_nnueNetwork->evaluate(*game.nnueAccumulator);
+        // Network outputs in pawns, so multiply by 100 to get centipawns
+        int whiteScore = static_cast<int>(nnueEval * 100.0f);
+        return (game.board.gameInfo & 1) ? whiteScore : -whiteScore;
+    }
+    
+    // Fallback to traditional evaluation
     int whiteScore = evaluateBoard(game.board); // always white-perspective
     return (game.board.gameInfo & 1) ? whiteScore : -whiteScore;
 }

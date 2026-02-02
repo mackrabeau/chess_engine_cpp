@@ -337,7 +337,78 @@ void handleSetOption(const std::string& line) {
 
 } // namespace
 
-int main() {
+void printUsage(const char* programName) {
+    std::cout << "Usage: " << programName << " [options]\n";
+    std::cout << "Options:\n";
+    std::cout << "  --eval-mode <mode>      Evaluation mode: traditional, nnue, hybrid (default: traditional)\n";
+    std::cout << "  --nnue-model <path>     Path to NNUE model file\n";
+    std::cout << "  --use-nnue              Enable NNUE evaluation (same as --eval-mode nnue)\n";
+    std::cout << "  --help                  Show this help message\n";
+    std::cout << "\n";
+    std::cout << "Environment variables (fallback if flags not used):\n";
+    std::cout << "  EVAL_MODE               Evaluation mode: traditional, nnue, hybrid\n";
+    std::cout << "  NNUE_MODEL              Path to NNUE model file\n";
+}
+
+int main(int argc, char* argv[]) {
+    using namespace evaluation;
+    
+    std::string evalModeStr = "";
+    std::string nnueModelPath = "";
+    
+    // Parse command line arguments
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--eval-mode" && i + 1 < argc) {
+            evalModeStr = argv[++i];
+        } else if (arg == "--nnue-model" && i + 1 < argc) {
+            nnueModelPath = argv[++i];
+        } else if (arg == "--use-nnue") {
+            evalModeStr = "nnue";
+        } else if (arg == "--help" || arg == "-h") {
+            printUsage(argv[0]);
+            return 0;
+        } else {
+            std::cerr << "Unknown option: " << arg << "\n";
+            std::cerr << "Use --help for usage information.\n";
+            return 1;
+        }
+    }
+    
+    // Check environment variables as fallback
+    if (evalModeStr.empty()) {
+        const char* evalModeEnv = std::getenv("EVAL_MODE");
+        if (evalModeEnv) {
+            evalModeStr = evalModeEnv;
+        }
+    }
+    
+    if (nnueModelPath.empty()) {
+        const char* nnueModelEnv = std::getenv("NNUE_MODEL");
+        if (nnueModelEnv) {
+            nnueModelPath = nnueModelEnv;
+        }
+    }
+    
+    // Set evaluation mode
+    EvalMode evalMode = EvalMode::TRADITIONAL;
+    if (!evalModeStr.empty()) {
+        if (evalModeStr == "nnue") {
+            evalMode = EvalMode::NNUE;
+        } else if (evalModeStr == "hybrid") {
+            evalMode = EvalMode::HYBRID;
+        } else if (evalModeStr != "traditional") {
+            std::cerr << "Warning: Unknown eval mode '" << evalModeStr 
+                     << "', using traditional\n";
+        }
+    }
+    
+    // Initialize NNUE if needed
+    if (evalMode != EvalMode::TRADITIONAL) {
+        initializeNNUE(nnueModelPath);
+    }
+    setEvalMode(evalMode);
+
     MoveTables::instance().init();
     Game game(STARTPOS_FEN);
 

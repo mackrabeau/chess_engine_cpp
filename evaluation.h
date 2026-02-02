@@ -7,6 +7,12 @@
 
 #include <vector>
 
+// Forward declaration
+namespace nnue {
+    class NNUE;
+    class Accumulator;
+}
+
 // values taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
 // ^^ FOR NOW ^^
 
@@ -22,7 +28,31 @@ const int Rwt = 500;
 const int Qwt = 900;
 // const int Kwt = 20000;
 
+// Evaluation mode
+enum class EvalMode {
+    TRADITIONAL,  // Use traditional piece-square table evaluation
+    NNUE,         // Use NNUE neural network evaluation
+    HYBRID        // Use both and combine (for testing)
+};
+
+// Global evaluation mode setting
+extern EvalMode g_evalMode;
+
+// Global NNUE network instance (nullptr if not initialized)
+extern nnue::NNUE* g_nnueNetwork;
+
+// Set evaluation mode
+void setEvalMode(EvalMode mode);
+
+// Initialize NNUE network (loads model if path provided, otherwise uses random weights)
+bool initializeNNUE(const std::string& modelPath = "");
+
+// Cleanup NNUE network
+void cleanupNNUE();
+
 int evaluateBoard(const Board& board);
+int evaluateBoardTraditional(const Board& board);
+int evaluateBoardNNUE(const Board& board, nnue::Accumulator* accumulator = nullptr);
 int materialScore(const Board& board);
 
 // plane / feature extractors

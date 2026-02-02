@@ -193,7 +193,7 @@ bool EngineInterface::getBestMove(int movetimeMs, std::string& bestMove, SearchS
     // Track if we've seen a mate score - if so, we might need more time
     bool seenMateScore = false;
     int consecutiveEmptyReads = 0;
-    const int MAX_EMPTY_READS = 100; // Allow more empty reads for mate positions
+    const int MAX_EMPTY_READS = 500; // Allow more empty reads for mate positions
 
     while (std::chrono::steady_clock::now() - start < timeout) {
         // Try to read a line - use shorter timeout but read more frequently

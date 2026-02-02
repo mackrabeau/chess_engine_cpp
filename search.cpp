@@ -1,5 +1,6 @@
 #include "search.h"
 #include "transposition.h"
+#include "evaluation.h"
 #include <chrono>
 #include <iostream>
 #include <vector>
@@ -320,6 +321,11 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 
 
 Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
+    using namespace evaluation;
+    // Initialize NNUE accumulator if NNUE is enabled and not already initialized
+    if (g_evalMode != EvalMode::TRADITIONAL && g_nnueNetwork != nullptr && game.nnueAccumulator == nullptr) {
+        game.initializeNNUEAccumulator();
+    }
 
     MovesStruct legalMoves = game.generateAllLegalMoves();
     if (legalMoves.getNumMoves() == 0) return MOVE_NONE;
