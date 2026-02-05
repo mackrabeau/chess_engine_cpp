@@ -51,7 +51,7 @@ public:
     GameState state;
     bool inMoveGeneration = false;
     
-    // NNUE accumulator for incremental evaluation (optional)
+    // NNUE accumulator for incremental evaluation
     std::unique_ptr<nnue::Accumulator> nnueAccumulator; 
     
     Game(const std::string& initialFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") 
@@ -105,9 +105,11 @@ public:
     void enableFastMode();
     void disableFastMode();
 
+    inline bool getTurnToMove() const {return board.gameInfo & TURN_MASK;};
+
     bool isThreefoldRepetition() const;
     bool isFiftyMoveRule() const;
-    bool isInsufficientMaterial() const {return false;};
+    bool isInsufficientMaterial() const {return false;}; // TO DO
     GameState checkForMateOrStaleMate();
 
     bool hasAnyLegalMove();

@@ -9,6 +9,7 @@
 struct MoveData {
     std::string uciMove;
     std::string sanMove;
+    Move move;
     int depth;
     long nodes;
     int evaluation;

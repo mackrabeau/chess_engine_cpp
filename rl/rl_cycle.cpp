@@ -9,6 +9,10 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
 
 namespace rl {
 
@@ -24,10 +28,12 @@ TrainingDataset RLCycle::generateSelfPlayGames() {
     std::cout << "\n=== Generating Self-Play Games ===\n";
     
     SelfPlayConfig spConfig;
-    spConfig.searchDepth = config.selfPlaySearchDepth;
+    spConfig.enginePath = "./engine";
+    // Use shorter movetime for faster self-play (can be different from evaluation)
+    spConfig.movetimeMs = 200;  // 200ms per move for faster games
     spConfig.maxMoves = config.selfPlayMaxMoves;
-    spConfig.useNNUE = true;
     spConfig.nnueModelPath = bestModelPath;  // Use current best model
+    spConfig.startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     
     SelfPlayGenerator generator(spConfig);
     auto games = generator.generateGames(config.selfPlayGames);
@@ -89,6 +95,9 @@ float RLCycle::evaluateModel(const std::string& modelPath, const std::string& pr
     // Use test_runner to play games between the two models
     // We'll use a simple approach: run test_runner as a subprocess
     
+    // Create cycle-specific output directory
+    std::string outputDir = "./test_results/cycle_" + std::to_string(currentCycle);
+
     // Create wrapper scripts for this evaluation
     std::string newModelScript = "eval_new_model.sh";
     std::string prevModelScript = "eval_prev_model.sh";
@@ -116,7 +125,7 @@ float RLCycle::evaluateModel(const std::string& modelPath, const std::string& pr
                                 prevModelScript + " \"Previous Model\" " +
                                 "--movetime " + std::to_string(config.evalMovetimeMs) +
                                 " --num-games " + std::to_string(config.evalGames) +
-                                " --swap-colors";
+                                " --swap-colors" + outputDir;
     
     std::cout << "Running evaluation: " << testRunnerCmd << "\n";
     
@@ -132,7 +141,7 @@ float RLCycle::evaluateModel(const std::string& modelPath, const std::string& pr
     }
     
     // Parse results from CSV
-    std::string csvPath = "./test_results/games.csv";
+    std::string csvPath = outputDir + "/games.csv";
     std::ifstream csv(csvPath);
     if (!csv.is_open()) {
         std::cerr << "Warning: Could not read evaluation results\n";
@@ -231,13 +240,35 @@ bool RLCycle::runCycle(int cycleNumber) {
         std::cerr << "Error: No training data generated\n";
         return false;
     }
+
+    // Create cycle-specific directory in test_results
+    std::string cycleDir = "./test_results/cycle_" + std::to_string(cycleNumber);
     
+    struct stat info;
+    if (stat(cycleDir.c_str(), &info) != 0) {
+        // Directory doesn't exist, create it
+        #ifdef _WIN32
+            _mkdir(cycleDir.c_str());
+        #else
+            mkdir(cycleDir.c_str(), 0755);
+        #endif
+        std::cout << "Created directory: " << cycleDir << "\n";
+    }
+
     // Save dataset
     std::string datasetPath = "rl_cycle_" + std::to_string(cycleNumber) + "_data.bin";
     if (!dataset.save(datasetPath)) {
         std::cerr << "Warning: Could not save training dataset\n";
     }
-    
+
+    // Save games to CSV in cycle directory
+    std::string csvPath = cycleDir + "/games.csv";
+    if (!dataset.saveGamesToCsv(csvPath)) {
+        std::cerr << "Warning: Could not save games CSV\n";
+    } else {
+        std::cout << "Saved training games CSV to: " << csvPath << "\n";
+    }
+        
     // Step 2: Train model
     std::string newModelPath = "rl_cycle_" + std::to_string(cycleNumber) + "_model.bin";
     if (!trainModel(dataset, newModelPath)) {

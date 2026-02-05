@@ -11,7 +11,10 @@ namespace rl {
 
 // Represents a single training position
 struct TrainingPosition {
-    std::string fen;              // Position in FEN format
+    // store features instead of FEN
+    std::vector<int> featuresWhite;
+    std::vector<int> featuresBlack;
+
     float targetEval;             // Target evaluation in centipawns (from game outcome or search)
     int searchDepth;              // Search depth used to get evaluation
     Move move;                    // Move played from this position
@@ -55,6 +58,8 @@ public:
     
     // Save dataset to binary file
     bool save(const std::string& path) const;
+
+    bool saveGamesToCsv(const std::string& path) const;
     
     // Load dataset from binary file
     bool load(const std::string& path);

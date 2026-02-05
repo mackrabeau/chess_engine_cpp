@@ -29,6 +29,15 @@ extern int g_currentPly;
 extern bool g_recordSearchTree;
 extern size_t g_searchTreeMaxLines;
 
+struct SearchResult {
+    Move bestMove;
+    int score;
+    bool found;
+
+    SearchResult() : bestMove(MOVE_NONE), score(0), found(false) {}
+};
+
+
 using namespace evaluation;
 
 void startSearchTree();
@@ -42,6 +51,7 @@ void resetStopSearchFlag();
 bool isStopSearchRequested();
 void setNodeLimit(long limit);
 
+SearchResult searchAtDepthWithScore(Game& game, int depth, const std::vector<Move>* rootFilter = nullptr);
 Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter = nullptr);
 int quiescenceSearch(int alpha, int beta, Game& game, int qDepth);
 int alphabeta(int alpha, int beta, int depth, Game& game);

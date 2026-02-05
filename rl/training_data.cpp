@@ -87,12 +87,23 @@ bool TrainingDataset::save(const std::string& path) const {
         
         // Write positions
         for (const auto& pos : game.positions) {
-            // FEN
-            uint32_t posFenLen = static_cast<uint32_t>(pos.fen.size());
-            file.write(reinterpret_cast<const char*>(&posFenLen), sizeof(uint32_t));
-            file.write(pos.fen.c_str(), posFenLen);
+            // Features white
+            uint32_t featuresWhiteSize = static_cast<uint32_t>(pos.featuresWhite.size());
+            file.write(reinterpret_cast<const char*>(&featuresWhiteSize), sizeof(uint32_t));
+            if (featuresWhiteSize > 0) {
+                file.write(reinterpret_cast<const char*>(pos.featuresWhite.data()), 
+                           featuresWhiteSize * sizeof(int));
+            }
             if (!file.good()) return false;
             
+            // Features black
+            uint32_t featuresBlackSize = static_cast<uint32_t>(pos.featuresBlack.size());
+            file.write(reinterpret_cast<const char*>(&featuresBlackSize), sizeof(uint32_t));
+            if (featuresBlackSize > 0) {
+                file.write(reinterpret_cast<const char*>(pos.featuresBlack.data()), 
+                           featuresBlackSize * sizeof(int));
+            }
+            if (!file.good()) return false;
             // Target evaluation
             file.write(reinterpret_cast<const char*>(&pos.targetEval), sizeof(float));
             if (!file.good()) return false;
@@ -117,6 +128,49 @@ bool TrainingDataset::save(const std::string& path) const {
     
     file.close();
     return true;
+}
+
+bool TrainingDataset::saveGamesToCsv(const std::string& path) const{
+    std::ofstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open CSV file for writing: " << path << std::endl;
+        return false;
+    }
+    
+    // Write CSV header
+    file << "game_id,result,reason,starting_fen,num_positions\n";
+    
+    // Write each game
+    for (size_t i = 0; i < games.size(); ++i) {
+        const auto& game = games[i];
+        
+        // Escape CSV fields (simple version - just handle quotes and commas)
+        auto escapeCsv = [](const std::string& str) -> std::string {
+            if (str.find(',') == std::string::npos && str.find('"') == std::string::npos && str.find('\n') == std::string::npos) {
+            return str;
+        }
+        std::string escaped = "\"";
+        for (char c : str) {
+            if (c == '"') {
+                escaped += "\"\"";
+            } else {
+                escaped += c;
+            }
+        }
+        escaped += "\"";
+        return escaped;
+    };
+
+    file << (i + 1) << ","
+        << escapeCsv(game.result) << ","
+        << escapeCsv(game.reason) << ","
+        << escapeCsv(game.startingFen) << ","
+        << game.positions.size() << "\n";
+    }
+
+    file.close();
+    return true;
+    
 }
 
 bool TrainingDataset::load(const std::string& path) {
@@ -187,13 +241,27 @@ bool TrainingDataset::load(const std::string& path) {
         // Read positions
         for (uint32_t p = 0; p < numPositions; ++p) {
             TrainingPosition pos;
-            
-            // FEN
-            uint32_t posFenLen;
-            file.read(reinterpret_cast<char*>(&posFenLen), sizeof(uint32_t));
+
+            // Features white
+            uint32_t featuresWhiteSize;
+            file.read(reinterpret_cast<char*>(&featuresWhiteSize), sizeof(uint32_t));
             if (!file.good()) return false;
-            pos.fen.resize(posFenLen);
-            file.read(&pos.fen[0], posFenLen);
+            pos.featuresWhite.resize(featuresWhiteSize);
+            if (featuresWhiteSize > 0) {
+                file.read(reinterpret_cast<char*>(pos.featuresWhite.data()), 
+                         featuresWhiteSize * sizeof(int));
+            }
+            if (!file.good()) return false;
+            
+            // Features black
+            uint32_t featuresBlackSize;
+            file.read(reinterpret_cast<char*>(&featuresBlackSize), sizeof(uint32_t));
+            if (!file.good()) return false;
+            pos.featuresBlack.resize(featuresBlackSize);
+            if (featuresBlackSize > 0) {
+                file.read(reinterpret_cast<char*>(pos.featuresBlack.data()), 
+                         featuresBlackSize * sizeof(int));
+            }
             if (!file.good()) return false;
             
             // Target evaluation

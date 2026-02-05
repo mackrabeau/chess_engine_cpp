@@ -22,11 +22,10 @@ GameResult GameRunner::runGame(int movetimeMs) {
     result.totalNodes = 0;
     result.finalEvaluation = 0;
     
-    // Set initial position
+
     std::string fenToUse = (startFen == "startpos") ? 
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" : startFen;
     
-    // Reinitialize game with the correct FEN
     game.setPosition(fenToUse);
     
     // Send ucinewgame to reset engine state
@@ -44,7 +43,7 @@ GameResult GameRunner::runGame(int movetimeMs) {
     
     std::vector<std::string> moveHistory;
     int moveNumber = 1;
-    bool isWhite = (game.board.gameInfo & 1) == 0; // Check if white to move
+    bool isWhite = game.getTurnToMove(); // Check if white to move
     
     const int MAX_MOVES = 500; // Prevent infinite games
     
@@ -103,12 +102,12 @@ GameResult GameRunner::runGame(int movetimeMs) {
             break;
         }
         
-        // Check for resignation
-        if (bestMove == "0000") {
-            result.result = isWhite ? "0-1" : "1-0";
-            result.reason = "Resignation: " + currentEngineName;
-            break;
-        }
+        // // Check for resignation
+        // if (bestMove == "0000") {
+        //     result.result = isWhite ? "0-1" : "1-0";
+        //     result.reason = "Resignation: " + currentEngineName;
+        //     break;
+        // }
         
         // Apply move to game
         MovesStruct legalMoves = game.generateAllLegalMoves();
@@ -156,6 +155,7 @@ GameResult GameRunner::runGame(int movetimeMs) {
         MoveData moveData;
         moveData.uciMove = bestMove;
         moveData.sanMove = sanMove;
+        moveData.move = moveToApply;
         moveData.depth = stats.depth;
         moveData.nodes = stats.nodes;
         moveData.evaluation = stats.score;
@@ -180,21 +180,6 @@ GameResult GameRunner::runGame(int movetimeMs) {
         if (!immediateTermination.empty()) {
             result.result = immediateTermination;
             result.reason = "Game ended";
-            break;
-        }
-        
-        // Also check if there are no legal moves for the next player
-        MovesStruct nextPlayerMoves = game.generateAllLegalMoves();
-        if (nextPlayerMoves.getNumMoves() == 0) {
-            // Next player has no moves - game is over
-            if (game.isInCheck()) {
-                // Checkmate - current player (who just moved) wins
-                result.result = isWhite ? "1-0" : "0-1";
-            } else {
-                // Stalemate
-                result.result = "1/2-1/2";
-            }
-            result.reason = "Game ended (no legal moves for next player)";
             break;
         }
         
@@ -232,7 +217,7 @@ std::string GameRunner::checkGameTermination() {
     switch (state) {
         case CHECKMATE:
             // Checkmate - opposite side wins
-            return (game.board.gameInfo & 1) ? "1-0" : "0-1";
+            return game.getTurnToMove() ? "0-1" : "1-0";
         case STALEMATE:
         case DRAW_REPETITION:
         case DRAW_50_MOVE:

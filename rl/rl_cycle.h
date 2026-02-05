@@ -27,6 +27,9 @@ struct RLCycleConfig {
     int evalSearchDepth = 4;             // Search depth for evaluation
     int evalMovetimeMs = 1000;           // Time per move for evaluation
     
+    // Engine path
+    std::string enginePath = "./engine";
+
     // Model management
     std::string modelPath = "rl_model.bin";        // Current model path
     std::string previousModelPath = "rl_model_prev.bin"; // Previous model path

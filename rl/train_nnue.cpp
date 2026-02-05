@@ -62,7 +62,6 @@ int main(int argc, char* argv[]) {
         rl::SelfPlayConfig config;
         config.searchDepth = 3;
         config.maxMoves = 100;
-        config.useNNUE = true;
         config.nnueModelPath = modelPath;
         
         rl::SelfPlayGenerator generator(config);

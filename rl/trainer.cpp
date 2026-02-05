@@ -62,14 +62,10 @@ float NNUETrainer::forwardPass(const TrainingPosition& position,
                                std::vector<float>& hidden1White,
                                std::vector<float>& hidden1Black,
                                std::vector<float>& hidden2) {
-    // Parse FEN and extract features
-    Game game;
-    game.setPosition(position.fen);
-    
-    // Extract features for both perspectives
-    auto featuresWhite = nnue::FeatureExtractor::extractFeatures(game.board, 0);
-    auto featuresBlack = nnue::FeatureExtractor::extractFeatures(game.board, 1);
-    
+
+    const auto& featuresWhite = position.featuresWhite;
+    const auto& featuresBlack = position.featuresBlack;
+
     // Compute hidden1 for white perspective
     hidden1White.resize(nnue::NNUE::HIDDEN1_SIZE);
     for (int i = 0; i < nnue::NNUE::HIDDEN1_SIZE; ++i) {
@@ -231,12 +227,9 @@ void NNUETrainer::backwardPass(const TrainingPosition& position,
         inputBiasesGrad[i] = whiteHidden1Grad[i] + blackHidden1Grad[i];
     }
     
-    // Input weights gradient (only for active features)
-    Game game;
-    game.setPosition(position.fen);
-    auto featuresWhite = nnue::FeatureExtractor::extractFeatures(game.board, 0);
-    auto featuresBlack = nnue::FeatureExtractor::extractFeatures(game.board, 1);
-    
+    const auto& featuresWhite = position.featuresWhite;
+    const auto& featuresBlack = position.featuresBlack;
+
     for (int featureIdx : featuresWhite) {
         if (featureIdx >= 0 && featureIdx < nnue::NNUE::INPUT_SIZE) {
             for (int j = 0; j < nnue::NNUE::HIDDEN1_SIZE; ++j) {
@@ -431,7 +424,7 @@ void NNUETrainer::trainBatch(const std::vector<TrainingPosition>& batch) {
         float prediction = forwardPass(position, hidden1White, hidden1Black, hidden2);
         
         // Compute loss
-        float target = position.targetEval;  // Already in centipawns
+        float target = position.targetEval;  // Already in pawns
         totalLoss += computeLoss(prediction, target);
         
         // Backward pass (accumulate gradients)

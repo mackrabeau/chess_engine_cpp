@@ -15,9 +15,9 @@ TEST_RUNNER_SRC := testing/test_runner.cpp $(TESTING_SRC) $(SRC)
 ENGINE_OBJ := $(ENGINE_SRC:.cpp=.o)
 PERFT_OBJ := $(PERFT_SRC:.cpp=.o)
 TEST_RUNNER_OBJ := $(TEST_RUNNER_SRC:.cpp=.o)
-TRAIN_NNUE_SRC := rl/train_nnue.cpp rl/trainer.cpp rl/self_play.cpp rl/training_data.cpp $(SRC)
+TRAIN_NNUE_SRC := rl/train_nnue.cpp rl/trainer.cpp rl/self_play.cpp rl/training_data.cpp $(TESTING_SRC) $(SRC)
 TRAIN_NNUE_OBJ := $(TRAIN_NNUE_SRC:.cpp=.o)
-RUN_RL_CYCLE_SRC := rl/run_rl_cycle.cpp rl/rl_cycle.cpp rl/trainer.cpp rl/self_play.cpp rl/training_data.cpp $(SRC)
+RUN_RL_CYCLE_SRC := rl/run_rl_cycle.cpp rl/rl_cycle.cpp rl/trainer.cpp rl/self_play.cpp rl/training_data.cpp $(TESTING_SRC) $(SRC)
 RUN_RL_CYCLE_OBJ := $(RUN_RL_CYCLE_SRC:.cpp=.o)
 
 .PHONY: all clean engine perft test_runner train_nnue run_rl_cycle

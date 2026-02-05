@@ -319,6 +319,57 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
     return maxScore;
 }
 
+SearchResult searchAtDepthWithScore(Game& game, int depth, const std::vector<Move>* rootFilter) {
+    using namespace evaluation;
+    // Initialize NNUE accumulator if NNUE is enabled and not already initialized
+    if (g_evalMode != EvalMode::TRADITIONAL && g_nnueNetwork != nullptr && game.nnueAccumulator == nullptr) {
+        game.initializeNNUEAccumulator();
+    }
+
+    MovesStruct legalMoves = game.generateAllLegalMoves();
+    if (legalMoves.getNumMoves() == 0) {
+        SearchResult result;
+        result.found = false;
+        return result;
+    }
+
+    std::unordered_set<U32> filterSet;
+    if (rootFilter && !rootFilter->empty()) {
+        filterSet.reserve(rootFilter->size());
+        for (const auto& move : *rootFilter) {
+            filterSet.insert(move);
+        }
+    }
+    
+    int alpha = -MATE_VALUE;
+    int bestScore = -MATE_VALUE;
+    int beta = MATE_VALUE;
+
+    SearchResult result;
+    result.found = false;
+
+    for (int i = 0; i < legalMoves.getNumMoves(); ++i) {
+        if (isTimeUp()) break;
+        
+        Move move = legalMoves.getMove(i);
+        if (!filterSet.empty() && filterSet.find(move) == filterSet.end()) {
+            continue;
+        }
+        
+        game.pushMove(move);
+        int score = -alphabeta(-beta, -alpha, depth - 1, game);
+        game.popMove();
+
+        if (score > bestScore || !result.found) {
+            bestScore = score;
+            result.score = score;
+            result.bestMove = move;
+            result.found = true;
+        }
+    }
+    return result;
+}
+
 
 Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
     using namespace evaluation;

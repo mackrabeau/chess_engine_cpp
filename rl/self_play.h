@@ -4,6 +4,8 @@
 #include "../game.h"
 #include "../search.h"
 #include "../evaluation.h"
+#include "../testing/engine_interface.h"
+
 #include "training_data.h"
 #include <string>
 #include <vector>
@@ -12,11 +14,11 @@ namespace rl {
 
 // Configuration for self-play
 struct SelfPlayConfig {
+    std::string enginePath = "./engine";
     int searchDepth = 4;              // Search depth for moves
     int maxMoves = 200;                // Maximum moves per game
     long movetimeMs = 1000;            // Time per move (ms) - not used if depth specified
     std::string startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    bool useNNUE = true;               // Use NNUE evaluation
     std::string nnueModelPath = "";    // Path to NNUE model (empty = random weights)
     
     SelfPlayConfig() {}
@@ -26,6 +28,7 @@ struct SelfPlayConfig {
 class SelfPlayGenerator {
 public:
     SelfPlayGenerator(const SelfPlayConfig& config);
+    ~SelfPlayGenerator();
     
     // Generate a single game and return training data
     TrainingGame generateGame();
@@ -40,6 +43,11 @@ private:
     SelfPlayConfig config;
     Game game;
     
+    // resuable engine instances
+    std::unique_ptr<EngineInterface> engine1;
+    std::unique_ptr<EngineInterface> engine2;
+    bool enginesInitialized;
+
     // Helper to label positions with game outcome
     void labelPositionsWithOutcome(TrainingGame& trainingGame, const std::string& result);
     

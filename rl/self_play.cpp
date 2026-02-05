@@ -1,29 +1,42 @@
 #include "self_play.h"
+#include "../testing/game_runner.h"
+#include "../testing/engine_interface.h"
 #include "../movetables.h"
 #include "../search.h"
 #include <iostream>
-#include <chrono>
+#include <memory>
 
 namespace rl {
 
 SelfPlayGenerator::SelfPlayGenerator(const SelfPlayConfig& cfg) : config(cfg) {
     // Initialize move tables
     MoveTables::instance().init();
-    
-    // Initialize NNUE if needed
-    if (config.useNNUE) {
-        evaluation::initializeNNUE(config.nnueModelPath);
-        evaluation::setEvalMode(evaluation::EvalMode::NNUE);
-    } else {
-        evaluation::setEvalMode(evaluation::EvalMode::TRADITIONAL);
+
+    if (!config.nnueModelPath.empty()) {
+        setenv("NNUE_MODEL", config.nnueModelPath.c_str(), 1);
     }
+    setenv("EVAL_MODE", "nnue", 1);
+
+    // Create engine instances once (will be reused for all games)
+    engine1 = std::make_unique<EngineInterface>(config.enginePath, "SelfPlay-White");
+    engine2 = std::make_unique<EngineInterface>(config.enginePath, "SelfPlay-Black");
     
-    // Initialize game
-    game.setPosition(config.startingFen);
-    
-    // Initialize NNUE accumulator if using NNUE
-    if (config.useNNUE && evaluation::g_nnueNetwork != nullptr) {
-        game.initializeNNUEAccumulator();
+    // Initialize engines once
+    if (engine1->initialize() && engine2->initialize()) {
+        enginesInitialized = true;
+    } else {
+        std::cerr << "Error: Failed to initialize engines for self-play\n";
+        enginesInitialized = false;
+    }
+}
+
+SelfPlayGenerator::~SelfPlayGenerator() {
+    // Clean up engines
+    if (engine1) {
+        engine1->quit();
+    }
+    if (engine2) {
+        engine2->quit();
     }
 }
 
@@ -31,134 +44,77 @@ TrainingGame SelfPlayGenerator::generateGame() {
     TrainingGame trainingGame;
     trainingGame.startingFen = config.startingFen;
     
-    // Reset game to starting position
-    game.setPosition(config.startingFen);
-    if (config.useNNUE && evaluation::g_nnueNetwork != nullptr) {
-        game.initializeNNUEAccumulator();
+    if (!enginesInitialized) {
+        std::cerr << "Error: Failed to initialize engines for self-play\n";
+        trainingGame.result = "*";
+        trainingGame.reason = "engine_init_failed";
+        return trainingGame;
     }
+
+    engine1->newGame();
+    engine2->newGame();
+
+
+    std::cout << "  Starting game..." << std::flush;
+    GameRunner runner(engine1.get(), engine2.get(), config.startingFen, "SelfPlay-White", "SelfPlay-Black");
+    GameResult gameResult = runner.runGame(config.movetimeMs);
     
-    // Reset search stats
-    resetSearchStats();
-    setNodeLimit(-1);
-    g_timeLimit = config.movetimeMs;
-    g_searchStartTime = std::chrono::steady_clock::now();
+    std::cout << " finished: " << gameResult.result 
+              << " (" << gameResult.moves.size() << " moves)" << std::endl;
     
-    int moveNumber = 1;
-    bool whiteToMove = true;
-    
-    while (moveNumber <= config.maxMoves) {
-        // Check for game termination
-        game.state = game.getGameState();
-        if (game.state != ONGOING) {
-            // Game ended
-            switch (game.state) {
-                case CHECKMATE:
-                    trainingGame.result = whiteToMove ? "0-1" : "1-0";
-                    trainingGame.reason = "checkmate";
-                    break;
-                case STALEMATE:
-                    trainingGame.result = "1/2-1/2";
-                    trainingGame.reason = "stalemate";
-                    break;
-                case DRAW_REPETITION:
-                    trainingGame.result = "1/2-1/2";
-                    trainingGame.reason = "repetition";
-                    break;
-                case DRAW_50_MOVE:
-                    trainingGame.result = "1/2-1/2";
-                    trainingGame.reason = "50move";
-                    break;
-                default:
-                    trainingGame.result = "*";
-                    trainingGame.reason = "unknown";
-            }
-            break;
-        }
-        
-        // Check for legal moves
-        auto legalMoves = game.generateAllLegalMoves();
-        if (legalMoves.getNumMoves() == 0) {
-            // No legal moves
-            if (game.isInCheck()) {
-                trainingGame.result = whiteToMove ? "0-1" : "1-0";
-                trainingGame.reason = "checkmate";
-            } else {
-                trainingGame.result = "1/2-1/2";
-                trainingGame.reason = "stalemate";
-            }
-            break;
-        }
-        
-        // Record current position
+    trainingGame.result = gameResult.result;
+    trainingGame.reason = gameResult.reason;
+
+    Game game;
+    game.setPosition(config.startingFen);
+
+    for (const auto& moveData : gameResult.moves) {
         TrainingPosition pos;
-        pos.fen = game.board.toString();
-        pos.moveNumber = moveNumber;
-        pos.isWhite = whiteToMove;
+
+        pos.featuresWhite = nnue::FeatureExtractor::extractFeatures(game.board, 0);
+        pos.featuresBlack = nnue::FeatureExtractor::extractFeatures(game.board, 1);
+
+        pos.moveNumber = moveData.moveNumber;
+        pos.isWhite = moveData.isWhite;
+        pos.searchDepth = moveData.depth;
+        pos.targetEval = static_cast<float>(moveData.evaluation) / 100.0f;
+        pos.move = moveData.move;  
         
-        // Search for best move
-        resetSearchStats();
-        resetStopSearchFlag();
-        g_searchStartTime = std::chrono::steady_clock::now();
-        
-        Move bestMove = searchAtDepth(game, config.searchDepth);
-        
-        if (bestMove == MOVE_NONE) {
-            // No move found, use first legal move
-            if (legalMoves.getNumMoves() > 0) {
-                bestMove = legalMoves.getMove(0);
-            } else {
-                break;
-            }
-        }
-        
-        // Get evaluation from search (evaluate current position)
-        pos.searchDepth = config.searchDepth;
-        pos.targetEval = static_cast<float>(evalForSide(game));
-        pos.move = bestMove;
-        
-        // Store position (will be labeled with outcome later)
         trainingGame.positions.push_back(pos);
         
-        // Make move
-        game.pushMove(bestMove);
-        
-        whiteToMove = !whiteToMove;
-        moveNumber++;
+        game.pushMove(moveData.move);
     }
-    
-    // If game didn't end naturally, mark as incomplete
-    if (trainingGame.result == "*") {
-        trainingGame.result = "*";
-        trainingGame.reason = "incomplete";
-    }
-    
-    // Label all positions with final game outcome
-    labelPositionsWithOutcome(trainingGame, trainingGame.result);
-    
+
+    // if (trainingGame.result != "*") {
+    //     labelPositionsWithOutcome(trainingGame, trainingGame.result);
+    // }
+
     return trainingGame;
+
 }
 
 void SelfPlayGenerator::labelPositionsWithOutcome(TrainingGame& trainingGame, const std::string& result) {
-    // Determine outcome value
-    float outcomeValue = 0.0f;  // Draw
-    if (result == "1-0") {
-        outcomeValue = 10000.0f;  // White wins (in centipawns)
-    } else if (result == "0-1") {
-        outcomeValue = -10000.0f;  // Black wins
-    }
+    return;
+    // // Determine outcome value
+    // float outcomeValue = 0.0f;  // Draw
+    // if (result == "1-0") {
+    //     outcomeValue = 10000.0f;  // White wins (in centipawns)
+    // } else if (result == "0-1") {
+    //     outcomeValue = -10000.0f;  // Black wins
+    // }
     
-    // Label each position
-    // For positions where white is to move: use outcome directly
-    // For positions where black is to move: negate outcome
-    for (auto& pos : trainingGame.positions) {
-        if (pos.isWhite) {
-            // White to move: positive if white wins, negative if black wins
-            pos.targetEval = outcomeValue;
-        } else {
-            // Black to move: negate (black's perspective)
-            pos.targetEval = -outcomeValue;
-        }
-    }
+    // // Label each position
+    // // For positions where white is to move: use outcome directly
+    // // For positions where black is to move: negate outcome
+    // for (auto& pos : trainingGame.positions) {
+    //     if (pos.isWhite) {
+    //         // White to move: positive if white wins, negative if black wins
+    //         pos.targetEval = outcomeValue;
+    //     } else {
+    //         // Black to move: negate (black's perspective)
+    //         pos.targetEval = -outcomeValue;
+    //     }
+    // }
 }
 
 std::vector<TrainingGame> SelfPlayGenerator::generateGames(int numGames) {
@@ -166,9 +122,7 @@ std::vector<TrainingGame> SelfPlayGenerator::generateGames(int numGames) {
     games.reserve(numGames);
     
     for (int i = 0; i < numGames; ++i) {
-        if ((i + 1) % 10 == 0) {
-            std::cout << "Generated " << (i + 1) << " / " << numGames << " games\n";
-        }
+        std::cout << "Game " << (i + 1) << " / " << numGames << ": " << std::flush;
         games.push_back(generateGame());
     }
     

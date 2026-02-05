@@ -280,6 +280,14 @@ SearchResult runIterativeSearch(Game& game, const GoSettings& settings, const st
         if (bestAtDepth != MOVE_NONE) {
             result.bestMove = bestAtDepth;
             result.depthReached = depth;
+            
+            // Output UCI info string after each depth completes
+            // Get the evaluation score for the best move
+            int score = evalForSide(game);
+            std::cout << "info depth " << depth 
+                      << " nodes " << g_nodeCount 
+                      << " score cp " << score << std::endl;
+            std::cout.flush();
         }
 
         if (isTimeUp()) {
