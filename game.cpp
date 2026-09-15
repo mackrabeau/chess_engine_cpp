@@ -252,6 +252,79 @@ bool Game::isFiftyMoveRule() const {
     return ((board.gameInfo & MOVE_MASK) >> 6) >= 100;
 }
 
+bool Game::isInsufficientMaterial() const {
+    const int whitePawns = __builtin_popcountll(board.getWhitePawns());
+    const int blackPawns = __builtin_popcountll(board.getBlackPawns());
+    const int whiteRooks = __builtin_popcountll(board.getWhiteRooks());
+    const int blackRooks = __builtin_popcountll(board.getBlackRooks());
+    const int whiteQueens = __builtin_popcountll(board.getWhiteQueens());
+    const int blackQueens = __builtin_popcountll(board.getBlackQueens());
+
+    // Any pawn, rook, or queen means there is still mating material.
+    if (whitePawns || blackPawns || whiteRooks || blackRooks || whiteQueens || blackQueens) {
+        return false;
+    }
+
+    const U64 whiteBishopBB = board.getWhiteBishops();
+    const U64 blackBishopBB = board.getBlackBishops();
+    const int whiteBishops = __builtin_popcountll(whiteBishopBB);
+    const int blackBishops = __builtin_popcountll(blackBishopBB);
+    const int whiteKnights = __builtin_popcountll(board.getWhiteKnights());
+    const int blackKnights = __builtin_popcountll(board.getBlackKnights());
+
+    const int whiteMinors = whiteBishops + whiteKnights;
+    const int blackMinors = blackBishops + blackKnights;
+    const int totalMinors = whiteMinors + blackMinors;
+
+    // K vs K
+    if (totalMinors == 0) {
+        return true;
+    }
+
+    // K+minor vs K (single bishop or knight)
+    if (totalMinors == 1) {
+        return true;
+    }
+
+    // K+N vs K+N (or K+B vs K+N, each side has at most one minor)
+    if (whiteMinors <= 1 && blackMinors <= 1) {
+        return true;
+    }
+
+    // K+NN vs K
+    if ((whiteKnights == 2 && whiteBishops == 0 && blackMinors == 0) ||
+        (blackKnights == 2 && blackBishops == 0 && whiteMinors == 0)) {
+        return true;
+    }
+
+    // Only bishops on board: draw if all bishops are on the same color complex.
+    if (whiteKnights == 0 && blackKnights == 0 && (whiteBishops + blackBishops) > 0) {
+        bool hasLight = false;
+        bool hasDark = false;
+
+        U64 bishops = whiteBishopBB | blackBishopBB;
+        while (bishops) {
+            const int sq = __builtin_ctzll(bishops);
+            bishops &= bishops - 1;
+
+            const int rank = sq / 8;
+            const int file = sq % 8;
+            if (((rank + file) & 1) == 0) {
+                hasDark = true;
+            } else {
+                hasLight = true;
+            }
+
+            if (hasLight && hasDark) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
 bool Game::isThreefoldRepetition() const {
     U64 currentHash = board.getHash();
     int count = 1; // include current position

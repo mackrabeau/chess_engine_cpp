@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cassert>
 #include <iomanip>
+#include <string>
 
 using namespace std;
 using namespace std::chrono;
@@ -65,25 +66,50 @@ void perftN(Game& game, int depth) {
 
 }
 
-void verifyStandard() {
+bool verifyStandard(bool verbose = true) {
     struct Test { string fen; int depth; long long expected; };
     vector<Test> tests = {
         {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 4865609},
-        {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 4, 4085603},
+        {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 4, 4085603},
     };
+
+    bool allPassed = true;
     
     for (auto& test : tests) {
         Game game(test.fen);
         long long result = perft(game, test.depth);
         double ratio = (double)result / test.expected;
-        cout << "Expected: " << test.expected << ", Got: " << result 
-             << " (ratio: " << fixed << setprecision(3) << ratio << ")" << endl;
+        bool pass = (result == test.expected);
+        allPassed = allPassed && pass;
+
+        if (verbose) {
+            cout << (pass ? "[PASS] " : "[FAIL] ")
+                 << "Expected: " << test.expected << ", Got: " << result
+                 << " (ratio: " << fixed << setprecision(3) << ratio << ")" << endl;
+        }
     }
+
+    return allPassed;
 }
 
 
-int main() {   
-    verifyStandard();
+int main(int argc, char* argv[]) {
+    bool benchmarkMode = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--bench") {
+            benchmarkMode = true;
+        }
+    }
+
+    bool ok = verifyStandard(true);
+    if (!ok) {
+        cerr << "Perft verification failed." << endl;
+        return 1;
+    }
+
+    if (!benchmarkMode) {
+        return 0;
+    }
 
     Game game("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
     // Game game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");

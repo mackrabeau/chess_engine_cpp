@@ -88,7 +88,7 @@ public:
 
     bool isThreefoldRepetition() const;
     bool isFiftyMoveRule() const;
-    bool isInsufficientMaterial() const {return false;};
+    bool isInsufficientMaterial() const;
     GameState checkForMateOrStaleMate();
 
     bool hasAnyLegalMove();

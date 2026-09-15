@@ -1,6 +1,6 @@
 # Chess Engine
 
-Modern C++ bitboard chess engine with a UCI interface, iterative-deepening search, and supporting tooling (perft driver, lightweight tests, transposition-table utilities).
+Modern C++ bitboard chess engine with a UCI interface, iterative-deepening search, and supporting tooling (perft driver, automated tests, transposition-table utilities).
 
 ## Features
 
@@ -25,7 +25,7 @@ Modern C++ bitboard chess engine with a UCI interface, iterative-deepening searc
 ├── search.{h,cpp}        # Alpha-beta + quiescence search
 ├── transposition.{h,cpp} # Zobrist TT
 ├── types.h               # Fundamental typedefs and constants
-└── Makefile              # Build targets for engine/perft
+└── Makefile              # Build targets for engine/perft/tests
 ```
 
 ## Building
@@ -39,6 +39,7 @@ Modern C++ bitboard chess engine with a UCI interface, iterative-deepening searc
 make          # builds both engine and perft
 make engine   # engine only
 make perft    # perft driver only
+make tests    # automated regression tests
 make clean    # remove binaries/objects
 ```
 
@@ -76,6 +77,12 @@ Build the perft tool (`make perft`) and run it directly:
 
 ```bash
 ./perft
+```
+
+By default, `perft` now exits with a non-zero code if reference perft checks fail. To run the move-by-move benchmark breakdown after checks pass:
+
+```bash
+./perft --bench
 ```
 
 By default it:
@@ -122,13 +129,13 @@ Modify `perft.cpp` to plug in custom FENs or depths when debugging move generati
 - [ ] Stronger evaluation (piece-square tuning, mobility terms)
 - [ ] Parallel search / lazy SMP
 
-## Lightweight Tests
+## Automated Tests
 
-`main.cpp` contains a handful of assertions covering special rules (castling, en passant, stalemate, promotions). Build/run it ad hoc if you are modifying core move generation:
+Use the dedicated `tests` binary for regression coverage (perft checks, move/unmove invariants, hash consistency, and rule edge cases):
 
 ```bash
-g++ -std=c++17 -O2 main.cpp game.cpp board.cpp move.cpp movetables.cpp bitboard.cpp -o mini-tests
-./mini-tests
+make tests
+./tests
 ```
 
 ---
