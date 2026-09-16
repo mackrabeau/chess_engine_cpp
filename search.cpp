@@ -117,6 +117,7 @@ void setNodeLimit(long limit) {
 }
 
 void resetSearchStats() {
+    g_searchStartTime = std::chrono::steady_clock::now();
     g_nodeCount = 0;
     g_ttHits = 0;
     g_ttProbes = 0;

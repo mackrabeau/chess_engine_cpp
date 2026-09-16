@@ -17,6 +17,10 @@ void Game::disableFastMode() {
 }
 
 bool Game::hasAnyLegalMove() {
+    if ((board.friendlyColour() == nWhite ? board.getWhiteKing() : board.getBlackKing()) == 0ULL) {
+        return false;
+    }
+
     bool oldInMoveGeneration = inMoveGeneration;
     inMoveGeneration = true; // prevent recursive calls to hasAnyLegalMove
 
@@ -42,9 +46,13 @@ bool Game::hasAnyLegalMove() {
 }
 
 bool Game::hasLegalMoveFromSquare(enumPiece pieceType, U64& friendlyPieces, U64& enemyAttacks, int square) {
+    U64 kingBB = (board.friendlyColour() == nWhite) ? board.getWhiteKing() : board.getBlackKing();
+    if (kingBB == 0ULL) {
+        return false;
+    }
 
     MovesStruct legalMoves;
-    int kingSquare = __builtin_ctzll( (board.friendlyColour() == nWhite) ? board.getWhiteKing() : board.getBlackKing());
+    int kingSquare = __builtin_ctzll(kingBB);
     
     generateLegalMovesForPiece(pieceType, square, legalMoves, friendlyPieces, enemyAttacks, kingSquare, true); // only called while in check
 
@@ -91,6 +99,30 @@ bool Game::isDrawByRule() {
 void Game::invalidateGameState() {
     stateNeedsUpdate = true;
     drawStateValid = false;
+}
+
+bool Game::validateBoardState() const {
+    const U64 whiteKing = board.getWhiteKing();
+    const U64 blackKing = board.getBlackKing();
+
+    if (__builtin_popcountll(whiteKing) != 1 || __builtin_popcountll(blackKing) != 1) {
+        return false;
+    }
+
+    if (whiteKing == 0ULL || blackKing == 0ULL) {
+        return false;
+    }
+
+    const int whiteKingSquare = __builtin_ctzll(whiteKing);
+    const int blackKingSquare = __builtin_ctzll(blackKing);
+    if ((tables.kingBB[whiteKingSquare] & blackKing) != 0ULL) {
+        return false;
+    }
+    if ((tables.kingBB[blackKingSquare] & whiteKing) != 0ULL) {
+        return false;
+    }
+
+    return true;
 }
 
 void Game::clearHistory() {
@@ -153,8 +185,13 @@ bool Game::isInCheck() {
 }
 
 bool Game::isInCheck(U8 colour) {
+    U64 kingBB = (colour == nWhite) ? board.getWhiteKing() : board.getBlackKing();
+    if (kingBB == 0ULL) {
+        return false;
+    }
+
     // Find the king's bitboard for the given colour
-    int kingSquare = __builtin_ctzll(colour == nWhite ? board.getWhiteKing() : board.getBlackKing());
+    int kingSquare = __builtin_ctzll(kingBB);
     U8 enemyColour = (colour == nWhite) ? nBlack : nWhite;
     return isSquareAttacked(kingSquare, enemyColour);  // Only check one square
 }
@@ -249,7 +286,7 @@ GameState Game::checkForMateOrStaleMate() {
 
 bool Game::isFiftyMoveRule() const {
     // Check if the halfmove clock is 100 or more
-    return ((board.gameInfo & MOVE_MASK) >> 6) >= 100;
+    return ((board.gameInfo & MOVE_MASK) >> MOVE_SHIFT) >= 100;
 }
 
 bool Game::isInsufficientMaterial() const {
@@ -532,11 +569,17 @@ MovesStruct Game::generateAllLegalMoves(bool isCaptureOnly) {
     U8 colour = board.friendlyColour();
     U8 enemyColour = board.enemyColour();
 
+    U64 kingBB = (colour == nWhite) ? board.getWhiteKing() : board.getBlackKing();
+    if (kingBB == 0ULL) {
+        inMoveGeneration = false;
+        return legalMoves;
+    }
+
     // computes all pinned pieces 
     currentPinnedPieces = getPinnedPieces(colour);
     U64 enemyAttacks = attackedBB(enemyColour);
 
-    int kingSquare = __builtin_ctzll(colour == nWhite ? board.getWhiteKing() : board.getBlackKing());
+    int kingSquare = __builtin_ctzll(kingBB);
 
     bool inCheck = enemyAttacks & (1ULL << kingSquare);
 
@@ -801,6 +844,8 @@ void Game::generatePawnMovesForSquare(int square, MovesStruct& legalMoves, int k
 void Game::addMovesToStructFast(enumPiece pieceType, MovesStruct& legalMoves, int square, U64& movesBB) {
 
     int epSquare = board.getEnPassantSquare();
+    U64 enemyKing = board.enemyColour() == nWhite ? board.getWhiteKing() : board.getBlackKing();
+    movesBB &= ~enemyKing;
     
     while(movesBB) {
         int to = __builtin_ctzll(movesBB);
@@ -814,6 +859,8 @@ void Game::addPawnMovesToStructFast(MovesStruct& legalMoves, int square, U64& mo
 
     // remove moves that land on friendly pieces
     movesBB &= ~board.getFriendlyPieces();
+    U64 enemyKing = board.enemyColour() == nWhite ? board.getWhiteKing() : board.getBlackKing();
+    movesBB &= ~enemyKing;
     
     int epSquare = board.getEnPassantSquare();
     enumPiece pieceType = board.getPieceType(square);
@@ -971,6 +1018,7 @@ void Game::pushMove(Move move) {
     if (useStackHistory) {
         searchHistory[searchDepth].move = move;
         searchHistory[searchDepth].gameInfo = board.gameInfo;
+        searchHistory[searchDepth].fullmoveNumber = board.fullmoveNumber;
         searchHistory[searchDepth].hash = board.hash;
         searchHistory[searchDepth].pieceMoved = piece; // Store piece type for efficient unmake
         
@@ -981,6 +1029,7 @@ void Game::pushMove(Move move) {
         BoardState currentState;   
         currentState.move = move;
         currentState.gameInfo = board.gameInfo;
+        currentState.fullmoveNumber = board.fullmoveNumber;
         currentState.hash = board.hash;
         currentState.pieceMoved = piece; // Store piece type for efficient unmake
         pushBoardState(currentState);
@@ -1038,11 +1087,15 @@ void Game::pushMove(Move move) {
     if (isCapture(move) || piece == nPawns){
        board.gameInfo &= ~MOVE_MASK; // reset halfmove clock
     } else {
-        board.gameInfo = (board.gameInfo & ~MOVE_MASK) | (((((board.gameInfo & MOVE_MASK) >> 6) + 1) << 6) & MOVE_MASK);
+        board.gameInfo = (board.gameInfo & ~MOVE_MASK) |
+            (((((board.gameInfo & MOVE_MASK) >> MOVE_SHIFT) + 1) << MOVE_SHIFT) & MOVE_MASK);
     }
 
     board.updateCasltingRights(piece, colour, from); // update castling rights
 
+    if (colour == nBlack) {
+        ++board.fullmoveNumber;
+    }
     board.gameInfo ^= TURN_MASK;
 
     // get new state for hash calculation
@@ -1129,6 +1182,7 @@ void Game::popMove() {
     }
 
     board.gameInfo = prevState.gameInfo;
+    board.fullmoveNumber = prevState.fullmoveNumber;
     board.hash = prevState.hash; // restore the hash from the previous state
     Move move = prevState.move;
     enumPiece pieceMoved = prevState.pieceMoved; // Use stored piece type (original piece)

@@ -104,12 +104,12 @@ constexpr U16 WQ_CASTLE      = 0x4;      // bit 2 (white-queen castle)
 constexpr U16 BK_CASTLE      = 0x8;      // bit 3 (black-king castle)
 constexpr U16 BQ_CASTLE      = 0x10;     // bit 4 (black-queen castle)
 
-constexpr U16 MOVE_MASK      = 0x7E0;    // bits 5-10 (6 bits for move count)
+constexpr U16 MOVE_MASK      = 0xFE0;    // bits 5-11 (7 bits for halfmove clock)
 constexpr U8 MOVE_SHIFT     = 5;
 
-constexpr U16 EP_IS_SET   = (1 << 11);      // bit 11
-constexpr U16 EP_FILE_MASK = (0x7 << 12);   // bits 12-14 (3 bits for file)
-constexpr U8 EP_FILE_SHIFT = 12;
+constexpr U16 EP_IS_SET   = (1 << 12);      // bit 12
+constexpr U16 EP_FILE_MASK = (0x7 << 13);   // bits 13-15 (3 bits for file)
+constexpr U8 EP_FILE_SHIFT = 13;
 
 // White king-side castle (e1 to g1): squares f1 (5), g1 (6)
 constexpr U64 WK_CASTLE_MASK  = (1ULL << 5) | (1ULL << 6);

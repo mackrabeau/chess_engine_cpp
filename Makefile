@@ -7,7 +7,7 @@ HEADERS := bitboard.h board.h game.h move.h movetables.h evaluation.h search.h t
 
 ENGINE_SRC := engine.cpp $(SRC)
 PERFT_SRC := perft.cpp $(SRC)
-TEST_SRC := testing/test_runner.cpp $(SRC)
+TEST_SRC := testing/test_runner.cpp testing/engine_interface.cpp testing/game_runner.cpp $(SRC)
 
 ENGINE_OBJ := $(ENGINE_SRC:.cpp=.o)
 PERFT_OBJ := $(PERFT_SRC:.cpp=.o)

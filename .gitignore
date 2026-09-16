@@ -2,5 +2,6 @@
 *.o
 engine
 perft
+tests
 plan.md
 archive

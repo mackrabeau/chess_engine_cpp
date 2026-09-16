@@ -15,6 +15,7 @@ class Board {
 public:
     U64 pieceBB[8];
     U16 gameInfo;
+    U16 fullmoveNumber;
     U64 hash;
 
     Board(const std::string& fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); 

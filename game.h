@@ -21,6 +21,7 @@ using namespace std;
 struct BoardState {
     U64 hash;
     U16 gameInfo;
+    U16 fullmoveNumber;
     Move move;
     enumPiece pieceMoved = nEmpty;  // Piece that was moved (for efficient unmake) - default to nEmpty
 };
@@ -118,6 +119,7 @@ public:
     // int getTerminalValue(int depth);
     bool isDrawByRule();
     void invalidateGameState();
+    bool validateBoardState() const;
 
 
 private:

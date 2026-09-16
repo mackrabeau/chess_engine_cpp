@@ -18,7 +18,7 @@ Modern C++ bitboard chess engine with a UCI interface, iterative-deepening searc
 ├── engine.cpp            # UCI front-end and search control
 ├── evaluation.{h,cpp}    # Material + piece-square evaluation
 ├── game.{h,cpp}          # Game state, legality checks, repetition
-├── main.cpp              # Small regression tests
+├── main.cpp              # Small standalone rule tests
 ├── move.{h,cpp}          # Move encoding helpers
 ├── movetables.{h,cpp}    # Pre-generated king/knight/pawn moves + Zobrist
 ├── perft.cpp             # Perft driver
@@ -36,7 +36,7 @@ Modern C++ bitboard chess engine with a UCI interface, iterative-deepening searc
 
 ### Targets
 ```bash
-make          # builds both engine and perft
+make          # builds engine, perft, and tests
 make engine   # engine only
 make perft    # perft driver only
 make tests    # automated regression tests
@@ -104,7 +104,7 @@ Modify `perft.cpp` to plug in custom FENs or depths when debugging move generati
 ## Technical Notes
 
 ### Move Representation
-- 16-bit packed value:
+- 32-bit packed value:
   - bits 0–5: `to` square
   - bits 6–11: `from` square
   - bits 12–15: move flags (quiet/double push/castles/captures/promotions)

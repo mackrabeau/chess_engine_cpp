@@ -1,6 +1,7 @@
 #include "board.h"
 #include "movetables.h"
 
+#include <algorithm>
 #include <cstring>
 #include <sstream>
 
@@ -9,6 +10,7 @@ using namespace std;
 Board::Board(const std::string& fen){
     clearBoard();
     gameInfo = 0ULL;
+    fullmoveNumber = 1;
     hash = 0ULL; // Initialize hash to zero
 
 
@@ -52,7 +54,7 @@ Board::Board(const std::string& fen){
     if (!halfmovePart.empty()) {
         int moveCount = std::stoi(halfmovePart);
         gameInfo &= ~MOVE_MASK;
-        gameInfo |= (moveCount << 6) & MOVE_MASK;
+        gameInfo |= (moveCount << MOVE_SHIFT) & MOVE_MASK;
     }
     
     // 5. En passant square
@@ -67,11 +69,9 @@ Board::Board(const std::string& fen){
         gameInfo &= ~(EP_IS_SET | EP_FILE_MASK); // Clear old ep info
     }
 
-    //     // 6. Fullmove number (optional, usually not needed for move generation)
-    // if (!fullmovePart.empty()) {
-    //     int fullmoveNumber = std::stoi(fullmovePart);
-    //     // You can store this in a member variable if you want, but it's not needed for move legality.
-    // }
+    if (!fullmovePart.empty()) {
+        fullmoveNumber = static_cast<U16>(std::max(1, std::stoi(fullmovePart)));
+    }
 
     calculateHash(); // Calculate the hash for the initial position
 };
@@ -81,12 +81,14 @@ Board::Board(const Board& other){
         pieceBB[i] = other.pieceBB[i];
     }
     gameInfo = other.gameInfo;
+    fullmoveNumber = other.fullmoveNumber;
     hash = other.hash;
 }
 
 Board::Board(U64 otherPieceBB[8], const U16& otherGameInfo, const U64& otherHash) {
     memcpy(pieceBB, otherPieceBB, 8 * sizeof(U64));
     gameInfo = otherGameInfo;
+    fullmoveNumber = 1;
     hash = otherHash;
 }
 
@@ -148,11 +150,10 @@ std::string Board::toString() const {
     }
     
     // 5. Halfmove clock (for 50-move rule)
-    int halfmoveClock = (gameInfo & MOVE_MASK) >> 6; // Using 6 as the shift based on code context
+    int halfmoveClock = (gameInfo & MOVE_MASK) >> MOVE_SHIFT;
     fen += ' ' + std::to_string(halfmoveClock);
     
-    // 6. Fullmove number +++ IMPLEMENT LATER
-    // fen += "";
+    fen += ' ' + std::to_string(fullmoveNumber);
     return fen;
 }
 
