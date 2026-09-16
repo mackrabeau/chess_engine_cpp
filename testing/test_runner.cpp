@@ -169,6 +169,49 @@ void playMove(Game& game, const std::string& uciMove) {
 	game.pushMove(move);
 }
 
+void test_double_check_forces_king_move() {
+	// White rook on e1 is blocked by white knight on e4 from checking the black king on e8.
+	// Nf6+ both uncovers the rook's check and attacks e8 directly: a double check.
+	Game game("4k3/8/8/8/4N3/8/8/4R1K1 w - - 0 1");
+	Move move = findMove(game, "e4f6");
+	expect(move != MOVE_NONE, "Expected legal knight move e4f6");
+	game.pushMove(move);
+
+	expect(game.isInCheck(), "King should be in check after the double-check move");
+
+	MovesStruct legalMoves = game.generateAllLegalMoves();
+	expect(legalMoves.getNumMoves() == 3, "Double check should leave exactly 3 legal king moves, got " +
+		std::to_string(legalMoves.getNumMoves()));
+
+	for (int i = 0; i < legalMoves.getNumMoves(); ++i) {
+		Move m = legalMoves.getMove(i);
+		expect(game.board.getPieceType(getFrom(m)) == nKings,
+			"Under double check, every legal move must move the king, got " + moveToString(m));
+	}
+}
+
+void test_discovered_check_allows_block() {
+	// White bishop on e4 is blocking its own rook on e1 from checking e8.
+	// Bd3 (off the e-file, no direct check) uncovers a single discovered check,
+	// which the black rook on d5 can still interpose against via d5-e5.
+	Game game("4k3/8/8/3r4/4B3/8/8/4R1K1 w - - 0 1");
+	Move move = findMove(game, "e4d3");
+	expect(move != MOVE_NONE, "Expected legal bishop move e4d3");
+	game.pushMove(move);
+
+	expect(game.isInCheck(), "King should be in check after the discovered-check move");
+
+	MovesStruct legalMoves = game.generateAllLegalMoves();
+	bool foundBlock = false;
+	for (int i = 0; i < legalMoves.getNumMoves(); ++i) {
+		Move m = legalMoves.getMove(i);
+		if (getFrom(m) == 35 /* d5 */ && getTo(m) == 36 /* e5 */) {
+			foundBlock = true;
+		}
+	}
+	expect(foundBlock, "Single discovered check should allow blocking with Rd5-e5");
+}
+
 void test_fen_and_counter_contract() {
 	const std::string fen = "r3k2r/8/8/8/8/8/R3K2R/8 b KQkq e3 99 42";
 	Board board(fen);
@@ -391,6 +434,8 @@ void runTest(const std::string& name, void (*fn)()) {
 int main() {
 	runTest("checkmate_stalemate", test_checkmate_stalemate);
 	runTest("special_moves", test_special_moves_exist);
+	runTest("double_check_forces_king_move", test_double_check_forces_king_move);
+	runTest("discovered_check_allows_block", test_discovered_check_allows_block);
 	runTest("missing_king_is_safe", test_missing_king_is_safe);
 	runTest("board_state_contract", test_board_state_contract);
 	runTest("search_reproducibility_baseline", test_search_reproducibility_baseline);

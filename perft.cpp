@@ -1,6 +1,7 @@
 #include "board.h"
 #include "game.h"
 #include "move.h"
+#include "testing/test_config.h"
 
 #include <iostream>
 #include <cassert>
@@ -66,16 +67,12 @@ void perftN(Game& game, int depth) {
 
 }
 
+// Reference perft counts live in testing/test_config.h so the ./tests binary
+// and this standalone driver check exactly the same positions/values.
 bool verifyStandard(bool verbose = true) {
-    struct Test { string fen; int depth; long long expected; };
-    vector<Test> tests = {
-        {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 4865609},
-        {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 4, 4085603},
-    };
-
     bool allPassed = true;
-    
-    for (auto& test : tests) {
+
+    for (const auto& test : test_config::kPerftCases) {
         Game game(test.fen);
         long long result = perft(game, test.depth);
         double ratio = (double)result / test.expected;
@@ -83,8 +80,8 @@ bool verifyStandard(bool verbose = true) {
         allPassed = allPassed && pass;
 
         if (verbose) {
-            cout << (pass ? "[PASS] " : "[FAIL] ")
-                 << "Expected: " << test.expected << ", Got: " << result
+            cout << (pass ? "[PASS] " : "[FAIL] ") << test.name
+                 << " Expected: " << test.expected << ", Got: " << result
                  << " (ratio: " << fixed << setprecision(3) << ratio << ")" << endl;
         }
     }
