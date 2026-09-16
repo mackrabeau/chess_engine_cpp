@@ -25,6 +25,25 @@ const int Qwt = 900;
 int evaluateBoard(const Board& board);
 int materialScore(const Board& board);
 
+// Search depends on this interface, not on evaluateBoard() directly, so a
+// learned evaluator can be substituted later without touching search code.
+class Evaluator {
+public:
+    virtual int evaluate(const Board& board) const = 0;
+    virtual ~Evaluator() = default;
+};
+
+class ClassicalEvaluator : public Evaluator {
+public:
+    int evaluate(const Board& board) const override { return evaluateBoard(board); }
+};
+
+// Shared default instance so callers don't need to construct their own.
+inline const Evaluator& defaultEvaluator() {
+    static ClassicalEvaluator instance;
+    return instance;
+}
+
 // plane / feature extractors
 // std::vector<float> piecePlanes(const Board& board);
 

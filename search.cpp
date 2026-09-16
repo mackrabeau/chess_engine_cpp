@@ -4,141 +4,20 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <sstream>
 #include <unordered_set>
 #include <atomic>
 
 using namespace std;
 
-std::chrono::steady_clock::time_point g_searchStartTime;
-long g_timeLimit = 20000;  // ms
-
-long g_nodeLimit = -1;
-long g_nodeCount = 0;
-long g_ttHits = 0;
-long g_ttProbes = 0;
-
-bool g_timeoutOccurred = false;
-Move killerMoves[MAX_SEARCH_DEPTH][2];
-std::atomic<bool> g_stopRequested(false);
-
-std::vector<std::string> g_searchTree;
-int g_currentPly = 0;
-bool g_recordSearchTree = false;
-size_t g_searchTreeMaxLines = 200000;
-
-static inline int getPlyFromRoot() {
-    return g_currentPly > 0 ? g_currentPly : 0; // Ensure we don't return negative ply
-}
-
-void startSearchTree() {
-    g_searchTree.clear();
-    g_currentPly = 0;
-    g_recordSearchTree = true;
-}
-
-void stopAndPrintSearchTree(size_t maxLines) {
-    g_recordSearchTree = false;
-    size_t printed = 0;
-    for (const auto &line : g_searchTree) {
-        if (printed++ >= maxLines) break;
-        std::cerr << line << std::endl;
-    }
-}
-
-// internal helpers
-void recordEntry(const Game& game, int depth, int alpha, int beta) {
-    if (g_recordSearchTree && g_searchTree.size() <= g_searchTreeMaxLines) {
-        std::ostringstream oss;
-        oss << std::string(g_currentPly * 2, ' ')
-            << "ENT depth=" << depth
-            << " ply=" << g_currentPly
-            << " a=" << alpha << " b=" << beta
-            << " hash=0x" << std::hex << game.board.getHash() << std::dec;
-        // try to append a short FEN (if available) - keep it short to avoid massive lines
-        oss << " fen=" << game.board.toString();
-        g_searchTree.push_back(oss.str());
-    }
-    ++g_currentPly;
-}
-
-void recordExit(const Game& game, int depth, int score) {
-    if (g_currentPly > 0) -- g_currentPly;
-    if (g_recordSearchTree && g_searchTree.size() <= g_searchTreeMaxLines) {
-        std::ostringstream oss;
-        oss << std::string(g_currentPly * 2, ' ')
-            << "EXIT depth=" << depth
-            << " ply=" << g_currentPly
-            << " score=" << score
-            << " hash=0x" << std::hex << game.board.getHash() << std::dec;
-        g_searchTree.push_back(oss.str());
-    }
-}
-
-
-bool isTimeUp() {
-    if (g_stopRequested.load(std::memory_order_relaxed)) {
-        return true;
-    }
-
-    if (g_nodeLimit > 0 && g_nodeCount >= g_nodeLimit) {
-        return true;
-    }
-
-    if (g_timeoutOccurred) return true;
-
-    // check every 1024 nodes for efficiency
-    if (g_nodeCount % 1024 == 0) {
-        auto currentTime = std::chrono::steady_clock::now();
-        auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - g_searchStartTime).count();
-
-        if (elapsedTime > g_timeLimit) {
-            g_timeoutOccurred = true;  // Set flag only once
-            return true;
-        }
-    }
-    return false;
-}
-
-void requestStopSearch() {
-    g_stopRequested.store(true, std::memory_order_relaxed);
-}
-
-void resetStopSearchFlag() {
-    g_stopRequested.store(false, std::memory_order_relaxed);
-}
-
-bool isStopSearchRequested() {
-    return g_stopRequested.load(std::memory_order_relaxed);
-}
-
-void setNodeLimit(long limit) {
-    g_nodeLimit = limit;
-}
-
-void resetSearchStats() {
-    g_searchStartTime = std::chrono::steady_clock::now();
-    g_nodeCount = 0;
-    g_ttHits = 0;
-    g_ttProbes = 0;
-    g_timeoutOccurred = false;
-
-    for (int depth = 0; depth < MAX_SEARCH_DEPTH; ++depth) {
-        killerMoves[depth][0] =MOVE_NONE;
-        killerMoves[depth][1] =MOVE_NONE;
-    }
-}
-
-void printSearchStats() {
-    if (g_ttProbes > 0) {
-        double hitRate = (double)g_ttHits / g_ttProbes * 100.0;
-        string output = "STATS: Nodes=" + to_string(g_nodeCount) +
-                        " TT=" + to_string(g_ttHits) + "/" + to_string(g_ttProbes) +
+void printSearchStats(const SearchContext& ctx) {
+    if (ctx.ttProbes > 0) {
+        double hitRate = (double)ctx.ttHits / ctx.ttProbes * 100.0;
+        string output = "STATS: Nodes=" + to_string(ctx.nodeCount) +
+                        " TT=" + to_string(ctx.ttHits) + "/" + to_string(ctx.ttProbes) +
                         " (" + to_string(hitRate) + "%)";
         std::cerr << output << std::endl;
     }
 }
-
 
 int adjustMateScore(int score, int plyFromRoot) {
     if (score > MATE_THRESHOLD) {
@@ -151,29 +30,28 @@ int adjustMateScore(int score, int plyFromRoot) {
 
 int restoreMateScore(int score, int plyFromRoot) {
     if (score > MATE_THRESHOLD) {
-        return score + plyFromRoot; 
+        return score + plyFromRoot;
     } else if (score < -MATE_THRESHOLD) {
-        return score - plyFromRoot;  
+        return score - plyFromRoot;
     }
     return score;
 }
 
 
-int getTerminalValue(Game& game) {
-    int ply = getPlyFromRoot();
+int getTerminalValue(Game& game, const SearchContext& ctx) {
     if (game.isInCheck()) {
-        return -MATE_VALUE + ply;
+        return -MATE_VALUE + ctx.currentPly;
     }
     return 0;
 }
 
-int alphabeta(int alpha, int beta, int depth, Game& game){
-    g_nodeCount++;
-    recordEntry(game, depth, alpha, beta);
+int alphabeta(int alpha, int beta, int depth, Game& game, SearchContext& ctx) {
+    ctx.nodeCount++;
+    ++ctx.currentPly;
 
-    if (g_nodeCount % 1024 == 0 && isTimeUp()) {
-        int score = evalForSide(game);
-        recordExit(game, depth, score);
+    if (ctx.nodeCount % 1024 == 0 && ctx.timeUp()) {
+        int score = evalForSide(game, ctx);
+        if (ctx.currentPly > 0) --ctx.currentPly;
         return score;
     }
 
@@ -183,12 +61,12 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
     // check transposition table
     if (depth >= 0){
         int ttScore;
-        g_ttProbes++;
+        ctx.ttProbes++;
 
         if (g_transpositionTable.probe(hash, alpha, beta, depth, ttScore)) {
-            g_ttHits++;
-            int ret = adjustMateScore(ttScore, getPlyFromRoot());
-            recordExit(game, depth, ret);
+            ctx.ttHits++;
+            int ret = adjustMateScore(ttScore, ctx.currentPly);
+            if (ctx.currentPly > 0) --ctx.currentPly;
             return ret;
         }
     }
@@ -196,24 +74,23 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
     ttBestMove = g_transpositionTable.getBestMove(hash);
 
     if (game.isPositionTerminal()) {
-        int score = getTerminalValue(game);
+        int score = getTerminalValue(game, ctx);
         if (depth > 0) {
-            int adjustedScore = adjustMateScore(score, getPlyFromRoot());
+            int adjustedScore = adjustMateScore(score, ctx.currentPly);
             g_transpositionTable.store(hash, adjustedScore, depth, TT_EXACT, MOVE_NONE);
         }
-        recordExit(game, depth, score);
+        if (ctx.currentPly > 0) --ctx.currentPly;
         return score;
     }
 
     if (depth <= 0) {
-        int qs = quiescenceSearch(alpha, beta, game, 0);
-        recordExit(game, depth, qs);
+        int qs = quiescenceSearch(alpha, beta, game, 0, ctx);
+        if (ctx.currentPly > 0) --ctx.currentPly;
         return qs;
     }
 
-    // if (game.isFiftyMoveRule() || game.isThreefoldRepetition()) {
     if (game.isDrawByRule()) {
-        recordExit(game, depth, STALEMATE_VALUE);
+        if (ctx.currentPly > 0) --ctx.currentPly;
         return STALEMATE_VALUE;
     }
 
@@ -222,13 +99,13 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 
     // no legal moves --> checkmate or stalemate
     if (legalMoves.getNumMoves() == 0) {
-        int score = getTerminalValue(game);
+        int score = getTerminalValue(game, ctx);
 
         if (depth > 0) {
-            int adjustedScore = adjustMateScore(score, getPlyFromRoot());
+            int adjustedScore = adjustMateScore(score, ctx.currentPly);
             g_transpositionTable.store(hash, adjustedScore, depth, TT_EXACT,MOVE_NONE);
         }
-        recordExit(game, depth, score);
+        if (ctx.currentPly > 0) --ctx.currentPly;
         return score;
     }
 
@@ -241,18 +118,18 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 
         if (ttBestMove == move){
             moveScore = 10000; // highest priority
-            
+
         } else if (getCapturedPiece(move) != nEmpty) {
             // MVV-LVA scoring for captures
             int victim = pieceScore( getCapturedPiece(move) );
             int attacker = pieceScore( game.board.getPieceType(getFrom(move)) );
 
-            // MVV-LVA scoring for remaining captures  
+            // MVV-LVA scoring for remaining captures
             int victimScore = victim / 100;
             int attackerScore = attacker / 100;
             moveScore = 1000 + (victimScore * 10) - attackerScore;
 
-        } else if (isKillerMove(move, depth)) {
+        } else if (ctx.isKillerMove(move, depth)) {
             moveScore = 900;
 
         } else if (isPromotion(move) || isPromoCapture(move)) {
@@ -281,10 +158,10 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 
     for (const auto& [move, moveScore] : scoredMoves) {
 
-        if (isTimeUp()) break; 
+        if (ctx.timeUp()) break;
 
         game.pushMove(move);
-        int score = -alphabeta(-beta, -alpha, depth - 1, game);
+        int score = -alphabeta(-beta, -alpha, depth - 1, game, ctx);
         game.popMove();
 
         if (score > maxScore) {
@@ -296,7 +173,7 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
 
         if (alpha >= beta) {
             if (getCapturedPiece(move) == nEmpty) {
-                updateKillerMove(move, depth); // Update killer move
+                ctx.updateKillerMove(move, depth);
             }
             break; // Prune remaining moves
         }
@@ -311,16 +188,16 @@ int alphabeta(int alpha, int beta, int depth, Game& game){
         } else {
             flag = TT_EXACT; // Exact score
         }
-        int adjustedScore = adjustMateScore(maxScore, getPlyFromRoot());
+        int adjustedScore = adjustMateScore(maxScore, ctx.currentPly);
         g_transpositionTable.store(hash, adjustedScore, depth, flag, bestMove);
     }
 
-    recordExit(game, depth, maxScore);
+    if (ctx.currentPly > 0) --ctx.currentPly;
     return maxScore;
 }
 
 
-Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
+Move searchAtDepth(Game& game, int depth, SearchContext& ctx, const std::vector<Move>* rootFilter) {
 
     MovesStruct legalMoves = game.generateAllLegalMoves();
     if (legalMoves.getNumMoves() == 0) return MOVE_NONE;
@@ -332,7 +209,7 @@ Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
             filterSet.insert(move);
         }
     }
-    
+
     int alpha = -MATE_VALUE;
     int bestScore = -MATE_VALUE;
     int beta = MATE_VALUE;
@@ -341,15 +218,15 @@ Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
     bool foundMove = false;
 
     for (int i = 0; i < legalMoves.getNumMoves(); ++i) {
-        if (isTimeUp()) break;
-        
+        if (ctx.timeUp()) break;
+
         Move move = legalMoves.getMove(i);
         if (!filterSet.empty() && filterSet.find(move) == filterSet.end()) {
             continue;
         }
-        
+
         game.pushMove(move);
-        int score = -alphabeta(-beta, -alpha, depth - 1, game);
+        int score = -alphabeta(-beta, -alpha, depth - 1, game, ctx);
         game.popMove();
 
         if (score > bestScore || !foundMove) {
@@ -361,22 +238,10 @@ Move searchAtDepth(Game& game, int depth, const std::vector<Move>* rootFilter) {
     return foundMove ? bestMove :MOVE_NONE;
 }
 
-void updateKillerMove(Move move, int depth) {
-    if (killerMoves[depth][0] != move) {
-        killerMoves[depth][1] = killerMoves[depth][0]; 
-        killerMoves[depth][0] = move;
-    }
-}
+int quiescenceSearch(int alpha, int beta, Game& game, int qDepth, SearchContext& ctx) {
 
-bool isKillerMove(Move move, int depth) {
-    if (depth < 0 || depth >= MAX_SEARCH_DEPTH) return false;
-    return (killerMoves[depth][0] == move || killerMoves[depth][1] == move);
-}
-
-int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
-
-    g_nodeCount++;
-    if (isTimeUp()) return evalForSide(game);
+    ctx.nodeCount++;
+    if (ctx.timeUp()) return evalForSide(game, ctx);
 
     U64 hash = game.board.getHash();
     Move ttBestMove = MOVE_NONE;
@@ -386,16 +251,16 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
     int ttDepth = 0;
     int ttScore;
 
-    g_ttProbes++;
+    ctx.ttProbes++;
     if (g_transpositionTable.probe(hash, alpha, beta, ttDepth, ttScore)) {
-        g_ttHits++;
-        return restoreMateScore(ttScore, getPlyFromRoot());
+        ctx.ttHits++;
+        return restoreMateScore(ttScore, ctx.currentPly);
     }
 
     ttBestMove = g_transpositionTable.getBestMove(hash);
 
     int originalAlpha = alpha;
-    int standPat = evalForSide(game);
+    int standPat = evalForSide(game, ctx);
 
     const int DELTA_MARGIN = 900; // Queen value
     if (standPat + DELTA_MARGIN < alpha) {
@@ -432,7 +297,7 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
             moveScore = 1000 + (victim * 10) - attacker; // simple MVV-LVA heuristic
         }
         scoredCaptures.push_back({move, moveScore});
-    }   
+    }
 
     if (scoredCaptures.empty()) {
         g_transpositionTable.store(hash, standPat, 0, TT_EXACT,MOVE_NONE);
@@ -441,7 +306,7 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
 
     std::sort(scoredCaptures.begin(), scoredCaptures.end(),
               [](const auto& a, const auto& b) { return a.second > b.second; }); // Sort by score descending
-    
+
     Move bestMove;
     bool foundMove = false;
     int bestScore = standPat;
@@ -449,20 +314,10 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
     for (const auto& scoredCapture : scoredCaptures) {
         Move move = scoredCapture.first;
 
-        if (isTimeUp()) break;
-
-        // SEE(Static Exchange Evaluation) pruning
-        // int victim = pieceScore(getCapturedPiece(move)) / 100;
-        // int attacker = pieceScore(game.board.getPieceType(getFrom(move))) / 100;
-        // int see = (victim * 100) - (attacker * 100); // Simple SEE approximation
-
-        // // Skip obviously bad captures (losing more than we gain)
-        // if (see < -100) {
-        //     continue;
-        // }
+        if (ctx.timeUp()) break;
 
         game.pushMove(move);
-        int score = -quiescenceSearch(-beta, -alpha, game, qDepth + 1);
+        int score = -quiescenceSearch(-beta, -alpha, game, qDepth + 1, ctx);
         game.popMove();
 
         if (score >= beta) {
@@ -478,8 +333,6 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
 
         if (score > alpha) {
             alpha = score; // Update alpha
-            // bestMove = move;
-            // foundMove = true;
         }
     }
 
@@ -492,7 +345,7 @@ int quiescenceSearch(int alpha, int beta, Game& game, int qDepth) {
         flag = TT_EXACT;  // Exact score
     }
 
-    int adjustedScore = adjustMateScore(bestScore, getPlyFromRoot());
+    int adjustedScore = adjustMateScore(bestScore, ctx.currentPly);
     Move storeMove = foundMove ? bestMove :MOVE_NONE;
     g_transpositionTable.store(hash, adjustedScore, ttDepth, flag, storeMove);
 

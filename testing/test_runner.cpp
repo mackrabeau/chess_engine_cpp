@@ -327,13 +327,13 @@ void test_board_state_contract() {
 
 void test_search_reproducibility_baseline() {
 	Game game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-	resetSearchStats();
+	SearchContext ctx1;
 	g_transpositionTable.clear();
-	Move first = searchAtDepth(game, 3, nullptr);
+	Move first = searchAtDepth(game, 3, ctx1, nullptr);
 
-	resetSearchStats();
+	SearchContext ctx2;
 	g_transpositionTable.clear();
-	Move second = searchAtDepth(game, 3, nullptr);
+	Move second = searchAtDepth(game, 3, ctx2, nullptr);
 
 	expect(first != MOVE_NONE, "Search should find a legal move from the start position");
 	expect(first == second, "Search should be reproducible for the same position and depth");
@@ -347,10 +347,10 @@ void test_deterministic_benchmark_harness() {
 		results.reserve(2);
 
 		for (int run = 0; run < 2; ++run) {
-			resetSearchStats();
+			SearchContext ctx;
 			g_transpositionTable.clear();
-			const Move best = searchAtDepth(game, benchmark.depth, nullptr);
-			results.push_back({best, g_nodeCount});
+			const Move best = searchAtDepth(game, benchmark.depth, ctx, nullptr);
+			results.push_back({best, ctx.nodeCount});
 		}
 
 		expect(results[0].first != MOVE_NONE, "Benchmark search should find a legal move for " + benchmark.name);

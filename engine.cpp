@@ -76,28 +76,28 @@ std::vector<std::string> tokenize(const std::string& line) {
     return tokens;
 }
 
-void joinFinishedSearchThreadIfNeeded() {
+void joinFinishedSearchThreadIfNeeded(SearchContext& ctx) {
     if (g_searchThread.joinable() && !g_searchRunning.load(std::memory_order_acquire)) {
         g_searchThread.join();
-        resetStopSearchFlag();
+        ctx.clearStopRequest();
     }
 }
 
-void stopActiveSearch() {
+void stopActiveSearch(SearchContext& ctx) {
     if (!g_searchThread.joinable()) {
-        resetStopSearchFlag();
+        ctx.clearStopRequest();
         return;
     }
 
     if (g_searchRunning.load(std::memory_order_acquire)) {
-        requestStopSearch();
+        ctx.requestStop();
         g_searchThread.join();
     } else {
         g_searchThread.join();
     }
 
     g_searchRunning.store(false, std::memory_order_release);
-    resetStopSearchFlag();
+    ctx.clearStopRequest();
 }
 
 void printUciIdentification() {
@@ -261,39 +261,36 @@ private:
     Game& game;
 };
 
-SearchResult runIterativeSearch(Game& game, const GoSettings& settings, const std::vector<Move>& rootFilter) {
+SearchResult runIterativeSearch(Game& game, const GoSettings& settings, const std::vector<Move>& rootFilter, SearchContext& ctx) {
     SearchResult result;
     FastModeGuard guard(game);
 
-    g_searchStartTime = std::chrono::steady_clock::now();
-    g_timeLimit = computeTimeLimitMs(settings, game);
-    setNodeLimit(settings.nodes > 0 ? settings.nodes : -1);
-
-    resetSearchStats();
-    resetStopSearchFlag();
+    ctx.timeLimitMs = computeTimeLimitMs(settings, game);
+    ctx.nodeLimit = settings.nodes > 0 ? settings.nodes : -1;
+    ctx.reset();
 
     const int targetDepth = (settings.depth > 0) ? std::min(settings.depth, MAX_SEARCH_DEPTH) : MAX_SEARCH_DEPTH;
     const std::vector<Move>* filterPtr = rootFilter.empty() ? nullptr : &rootFilter;
 
     for (int depth = 1; depth <= targetDepth; ++depth) {
-        Move bestAtDepth = searchAtDepth(game, depth, filterPtr);
+        Move bestAtDepth = searchAtDepth(game, depth, ctx, filterPtr);
         if (bestAtDepth != MOVE_NONE) {
             result.bestMove = bestAtDepth;
             result.depthReached = depth;
         }
 
-        if (isTimeUp()) {
+        if (ctx.timeUp()) {
             break;
         }
     }
 
-    printSearchStats();
-    setNodeLimit(-1);
+    printSearchStats(ctx);
+    ctx.nodeLimit = -1;
     return result;
 }
 
-void startSearch(Game& game, const GoSettings& settings, const std::vector<Move>& rootFilter) {
-    joinFinishedSearchThreadIfNeeded();
+void startSearch(Game& game, const GoSettings& settings, const std::vector<Move>& rootFilter, SearchContext& ctx) {
+    joinFinishedSearchThreadIfNeeded(ctx);
     if (g_searchRunning.load(std::memory_order_acquire)) {
         std::cout << "info string search already running" << std::endl;
         return;
@@ -303,17 +300,17 @@ void startSearch(Game& game, const GoSettings& settings, const std::vector<Move>
     GoSettings settingsCopy = settings;
     std::vector<Move> filterCopy = rootFilter;
 
-    g_searchThread = std::thread([&game, settingsCopy, filterCopy]() mutable {
-        SearchResult result = runIterativeSearch(game, settingsCopy, filterCopy);
+    g_searchThread = std::thread([&game, &ctx, settingsCopy, filterCopy]() mutable {
+        SearchResult result = runIterativeSearch(game, settingsCopy, filterCopy, ctx);
         std::string bestMove = (result.bestMove != MOVE_NONE) ? moveToString(result.bestMove) : "0000";
         std::cout << "bestmove " << bestMove << std::endl;
         std::cout.flush();
         g_searchRunning.store(false, std::memory_order_release);
-        resetStopSearchFlag();
+        ctx.clearStopRequest();
     });
 }
 
-void handleSetOption(const std::string& line) {
+void handleSetOption(const std::string& line, SearchContext& ctx) {
     const auto namePos = line.find("name");
     if (namePos == std::string::npos) return;
 
@@ -324,7 +321,7 @@ void handleSetOption(const std::string& line) {
     if (name == "Hash" && !value.empty()) {
         try {
             size_t sizeMb = std::stoul(value);
-            stopActiveSearch();
+            stopActiveSearch(ctx);
             g_transpositionTable.resize(sizeMb);
         } catch (const std::exception&) {
             std::cout << "info string invalid hash size " << value << std::endl;
@@ -340,18 +337,19 @@ void handleSetOption(const std::string& line) {
 int main() {
     MoveTables::instance().init();
     Game game(STARTPOS_FEN);
+    SearchContext searchCtx;
 
     std::string line;
     while (std::getline(std::cin, line)) {
         line = trim(line);
         if (line.empty()) {
-            joinFinishedSearchThreadIfNeeded();
+            joinFinishedSearchThreadIfNeeded(searchCtx);
                 continue;
             }
 
         auto tokens = tokenize(line);
         if (tokens.empty()) {
-            joinFinishedSearchThreadIfNeeded();
+            joinFinishedSearchThreadIfNeeded(searchCtx);
                 continue;
             }
 
@@ -360,37 +358,37 @@ int main() {
         if (command == "uci") {
             printUciIdentification();
         } else if (command == "isready") {
-            stopActiveSearch();
+            stopActiveSearch(searchCtx);
             std::cout << "readyok" << std::endl;
         } else if (command == "ucinewgame") {
-            stopActiveSearch();
+            stopActiveSearch(searchCtx);
             game.reset();
             g_transpositionTable.clear();
         } else if (command == "position") {
-            stopActiveSearch();
+            stopActiveSearch(searchCtx);
             if (!handlePositionCommand(tokens, game)) {
                 std::cout << "info string failed to set position" << std::endl;
             }
         } else if (command == "go") {
             auto settings = parseGoCommand(tokens);
             auto rootFilter = resolveSearchMoves(game, settings.searchMoveStrings);
-            startSearch(game, settings, rootFilter);
+            startSearch(game, settings, rootFilter, searchCtx);
         } else if (command == "stop") {
-            stopActiveSearch();
+            stopActiveSearch(searchCtx);
         } else if (command == "quit") {
-            stopActiveSearch();
+            stopActiveSearch(searchCtx);
             break;
         } else if (command == "setoption") {
-            handleSetOption(line);
+            handleSetOption(line, searchCtx);
         } else if (command == "ponderhit") {
             std::cout << "info string ponderhit not supported" << std::endl;
         } else {
             std::cout << "info string unknown command " << command << std::endl;
         }
 
-        joinFinishedSearchThreadIfNeeded();
+        joinFinishedSearchThreadIfNeeded(searchCtx);
     }
 
-    stopActiveSearch();
+    stopActiveSearch(searchCtx);
     return 0;
 }
