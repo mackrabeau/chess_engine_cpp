@@ -6,7 +6,8 @@ Modern C++ bitboard chess engine with a UCI interface, iterative-deepening searc
 
 - **Complete rule set**: legal move generation, promotions, castling, en passant, draw rules (50-move, repetition).
 - **Bitboard move generation** backed by precomputed tables and magic-bitboard style sliding attacks.
-- **Search**: iterative-deepening alpha-beta with killer moves, MVV-LVA ordering, quiescence, and a transposition table (configurable hash size).
+- **Search**: iterative-deepening alpha-beta with killer moves, MVV-LVA ordering, quiescence, and a transposition table (configurable hash size). All per-search state lives in a `SearchContext` (no globals), so searches are reentrant and safe to run independently (e.g. concurrent self-play games).
+- **Pluggable evaluation**: search depends on an `Evaluator` interface, not a concrete function — a learned evaluator can be swapped in later without touching search code.
 - **UCI protocol support**: works with GUIs such as CuteChess or Banksia by speaking the standard `uci/isready/position/go` command set. Search runs on a worker thread and supports both time and node limits.
 - **Perft / benchmarking**: dedicated binary validates move-generation correctness and reports speed.
 
@@ -16,15 +17,21 @@ Modern C++ bitboard chess engine with a UCI interface, iterative-deepening searc
 ├── bitboard.{h,cpp}      # Magic-bitboard helpers
 ├── board.{h,cpp}         # Bitboard representation + hashing helpers
 ├── engine.cpp            # UCI front-end and search control
-├── evaluation.{h,cpp}    # Material + piece-square evaluation
+├── evaluation.{h,cpp}    # Material + piece-square evaluation, Evaluator interface
 ├── game.{h,cpp}          # Game state, legality checks, repetition
-├── main.cpp              # Small standalone rule tests
+├── main.cpp              # Legacy standalone rule checks (not part of the build; superseded by testing/)
 ├── move.{h,cpp}          # Move encoding helpers
 ├── movetables.{h,cpp}    # Pre-generated king/knight/pawn moves + Zobrist
 ├── perft.cpp             # Perft driver
-├── search.{h,cpp}        # Alpha-beta + quiescence search
+├── search.{h,cpp}        # Alpha-beta + quiescence search, SearchContext
 ├── transposition.{h,cpp} # Zobrist TT
 ├── types.h               # Fundamental typedefs and constants
+├── testing/              # Regression test suite + engine-vs-engine tooling
+│   ├── test_runner.cpp     # Entry point for `make tests` / ./tests
+│   ├── test_config.h       # Shared perft/benchmark/invariant reference data
+│   ├── engine_interface.{h,cpp}  # Spawns a UCI engine subprocess for automated play
+│   ├── game_runner.{h,cpp}       # Drives a full engine-vs-engine game over UCI
+│   └── game_recorder.cpp   # (not yet implemented)
 └── Makefile              # Build targets for engine/perft/tests
 ```
 
@@ -121,6 +128,10 @@ Modify `perft.cpp` to plug in custom FENs or depths when debugging move generati
 - Killer-table and MVV-LVA heuristics.
 - Transposition table with configurable size and three entry types (exact/lower/upper).
 - Cooperative time control: node/time limits + async stop requests for responsive GUI interaction.
+- All search state (node counts, killer moves, timers, stop flag, ply, active evaluator) is held in a `SearchContext` passed by reference — no global mutable search state. The transposition table (`g_transpositionTable`) remains a shared global by design, intended to eventually be shared across concurrent searches.
+
+### Evaluation
+- `Evaluator` is an abstract interface (`evaluate(const Board&) -> int`); `ClassicalEvaluator` wraps the existing material/piece-square `evaluateBoard()`. `SearchContext` holds a pointer to the active evaluator (defaults to `ClassicalEvaluator`), so a learned evaluator can later be substituted without changing search code.
 
 ## Future Improvements
 
@@ -128,15 +139,18 @@ Modify `perft.cpp` to plug in custom FENs or depths when debugging move generati
 - [ ] Endgame tablebases
 - [ ] Stronger evaluation (piece-square tuning, mobility terms)
 - [ ] Parallel search / lazy SMP
+- [ ] Reinforcement learning (learned evaluator and/or policy) — under active research, see `Evaluator` interface and `SearchContext` reentrancy above
 
 ## Automated Tests
 
-Use the dedicated `tests` binary for regression coverage (perft checks, move/unmove invariants, hash consistency, and rule edge cases):
+Use the dedicated `tests` binary for regression coverage: perft reference nodes, move/unmake + hash invariants, FEN round-trip, repetition and insufficient-material draw detection, checkmate/stalemate, castling/en-passant/promotion, double-check and discovered-check move generation, deterministic search/benchmark reproducibility, and a UCI subprocess boundary test.
 
 ```bash
 make tests
 ./tests
 ```
+
+`testing/engine_interface.{h,cpp}` and `testing/game_runner.{h,cpp}` provide reusable scaffolding for spawning a UCI engine subprocess and driving a full engine-vs-engine game — not yet wired into a standalone binary, but the building blocks for self-play data generation.
 
 ---
 
